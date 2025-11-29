@@ -1,87 +1,270 @@
-// 獲取 3D 方形元素
-const iphoneBody = document.getElementById('iphone-body');
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>iPhone 14 Pro 3D 觸控模型</title>
+    <style>
+        /* CSS 樣式區域 */
+        body {
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #f0f0f0;
+            overflow: hidden; /* 防止滾動 */
+        }
 
-// 儲存當前 3D 狀態
-let currentXAngle = 15; // 初始 X 軸角度 (來自 CSS)
-let currentYAngle = -45; // 初始 Y 軸角度 (來自 CSS)
-let currentScale = 1;     // 初始縮放比例
+        /* ------------------ 3D 容器設置 ------------------ */
+        #phone-container {
+            width: 300px;
+            height: 600px;
+            /* 設置景深 */
+            perspective: 1200px; 
+            /* 使用 transform-origin 確保縮放是從中心開始 */
+            transform-origin: center center;
+            touch-action: none; /* 禁用瀏覽器默認的觸控行為 */
+        }
 
-// 儲存觸控點資訊
-let startTouches = [];    // 儲存觸控開始時的點
-let isDragging = false;
+        /* ------------------ 手機機身樣式 ------------------ */
+        #iphone-body {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            /* 讓子元素能在 3D 空間中變換 */
+            transform-style: preserve-3d; 
+            /* 初始設置：視圖角度和初始縮放 */
+            transform: translateZ(0) scale(1) rotateX(15deg) rotateY(-45deg); 
+            transition: transform 0.1s ease-out; /* 讓變換更平滑 */
+        }
 
-/**
- * 計算兩點之間的距離
- * @param {object} p1 - 第一個點 {clientX, clientY}
- * @param {object} p2 - 第二個點 {clientX, clientY}
- */
-function getDistance(p1, p2) {
-    const dx = p1.clientX - p2.clientX;
-    const dy = p1.clientY - p2.clientY;
-    return Math.sqrt(dx * dx + dy * dy);
-}
+        /* ------------------ 3D 方形的每個面 ------------------ */
+        .face {
+            position: absolute;
+            width: 300px; /* 手機寬度 */
+            height: 600px; /* 手機高度 */
+            box-sizing: border-box;
+            border-radius: 40px; /* 模擬手機圓角 */
+            border: 5px solid #222; /* 邊框模擬手機邊緣 */
+            background-color: #ccc;
+            opacity: 0.95;
+            /* 設置薄度（手機厚度） */
+            --thickness: 10px; 
+            backface-visibility: hidden; /* 確保背面不會閃爍 */
+        }
+        
+        /* 螢幕/前面 */
+        .front {
+            background: radial-gradient(circle at 70% 30%, #444, #111);
+            transform: translateZ(var(--thickness));
+            border-color: #000;
+        }
 
-// --- 觸控開始 ---
-iphoneBody.addEventListener('touchstart', (e) => {
-    // 阻止瀏覽器預設的行為（如滾動和放大縮小）
-    e.preventDefault(); 
+        /* 背面 */
+        .back {
+            background: linear-gradient(135deg, #a7a9ac, #6c6f71); /* 模擬太空黑或銀色 */
+            transform: rotateY(180deg) translateZ(var(--thickness));
+        }
+
+        /* 頂部 */
+        .top {
+            width: 300px;
+            height: calc(2 * var(--thickness));
+            background-color: #444;
+            transform: rotateX(90deg) translateZ(calc(var(--thickness) + 300px)); /* 300px 是高度的一半 */
+            border-radius: 40px 40px 0 0;
+        }
+
+        /* 底部 */
+        .bottom {
+            width: 300px;
+            height: calc(2 * var(--thickness));
+            background-color: #444;
+            transform: rotateX(-90deg) translateZ(calc(600px - var(--thickness)));
+            border-radius: 0 0 40px 40px;
+        }
+        
+        /* 右側 (假設厚度 20px) */
+        .right {
+            width: calc(2 * var(--thickness));
+            height: 600px;
+            background-color: #444;
+            transform: rotateY(90deg) translateZ(calc(300px - var(--thickness))); /* 300px 是寬度的一半 */
+            border-radius: 0 40px 40px 0;
+        }
+
+        /* 左側 */
+        .left {
+            width: calc(2 * var(--thickness));
+            height: 600px;
+            background-color: #444;
+            transform: rotateY(-90deg) translateZ(calc(var(--thickness)));
+            border-radius: 40px 0 0 40px;
+        }
+
+        /* 螢幕細節 */
+        #dynamic-island {
+            position: absolute;
+            width: 80px;
+            height: 30px;
+            background: black;
+            border-radius: 15px;
+            top: 15px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="phone-container">
+        <div id="iphone-body">
+            <div class="face front">
+                <div id="dynamic-island"></div>
+            </div>
+            <div class="face back"></div>
+            <div class="face top"></div>
+            <div class="face bottom"></div>
+            <div class="face right"></div>
+            <div class="face left"></div>
+        </div>
+    </div>
     
-    startTouches = e.touches;
-    isDragging = true;
-});
+    <script>
+        // JavaScript 交互邏輯區域
 
-// --- 觸控移動 ---
-iphoneBody.addEventListener('touchmove', (e) => {
-    if (!isDragging || e.touches.length === 0) return;
+        const phoneBody = document.getElementById('iphone-body');
+        const phoneContainer = document.getElementById('phone-container');
+        
+        // 初始變數
+        let currentScale = 1;
+        let rotationX = 15;
+        let rotationY = -45;
 
-    // 1. 旋轉 (適用於單指或多指)
-    if (e.touches.length >= 1) {
-        // 使用第一個觸控點的移動來計算旋轉
-        const touch = e.touches[0];
-        const startTouch = startTouches[0];
-        
-        // 移動量 (delta)
-        const dx = touch.clientX - startTouch.clientX;
-        const dy = touch.clientY - startTouch.clientY;
+        // 觸控追蹤變數
+        let touchPoints = []; // 儲存當前所有的觸控點
+        let lastDistance = null; // 上一次兩點距離 (用於縮放)
+        let lastAngle = null;    // 上一次兩點角度 (用於旋轉)
+        let lastTouch = null;    // 上一次單點位置 (用於單指拖曳)
 
-        // 更新角度 (除以一個係數來控制旋轉速度)
-        currentYAngle += dx * 0.5; // 左右移動控制 Y 軸旋轉
-        currentXAngle -= dy * 0.5; // 上下移動控制 X 軸旋轉
-        
-        // 更新起始點，讓旋轉平滑
-        startTouches = e.touches;
-    }
-    
-    // 2. 縮放 (需要兩指)
-    if (e.touches.length === 2 && startTouches.length === 2) {
-        // 當前兩指距離
-        const currentDistance = getDistance(e.touches[0], e.touches[1]);
-        // 起始兩指距離
-        const startDistance = getDistance(startTouches[0], startTouches[1]);
-        
-        // 計算比例變化 (Ratio)
-        const scaleRatio = currentDistance / startDistance;
-        
-        // 將比例變化應用到當前縮放值
-        currentScale *= scaleRatio;
-        
-        // 更新起始點，讓縮放平滑
-        startTouches = e.touches;
-    }
+        // ------------------ 輔助函數 ------------------
 
-    // 3. 應用變換
-    iphoneBody.style.transform = 
-        `rotateX(${currentXAngle}deg) rotateY(${currentYAngle}deg) scale(${currentScale})`;
-});
+        // 計算兩點之間的距離
+        function getDistance(p1, p2) {
+            return Math.sqrt(Math.pow(p2.clientX - p1.clientX, 2) + Math.pow(p2.clientY - p1.clientY, 2));
+        }
 
-// --- 觸控結束 ---
-iphoneBody.addEventListener('touchend', (e) => {
-    if (e.touches.length === 0) {
-        isDragging = false;
-        // 清除起始觸控點，防止錯誤計算
-        startTouches = []; 
-    } else {
-        // 如果還有手指在螢幕上，更新起始觸控點
-        startTouches = e.touches;
-    }
-});
+        // 計算兩點之間與 Y 軸的角度 (用於兩指旋轉模型)
+        function getAngle(p1, p2) {
+            return Math.atan2(p2.clientY - p1.clientY, p2.clientX - p1.clientX) * (180 / Math.PI);
+        }
+
+        // 應用當前變換到 3D 模型
+        function updateTransform() {
+            phoneBody.style.transform = `
+                scale(${currentScale}) 
+                rotateX(${rotationX}deg) 
+                rotateY(${rotationY}deg)
+            `;
+        }
+
+        // ------------------ 觸控事件處理 ------------------
+
+        phoneContainer.addEventListener('touchstart', (e) => {
+            // 阻止瀏覽器默認行為（如滾動或頁面縮放）
+            e.preventDefault(); 
+            // 儲存所有觸控點
+            touchPoints = Array.from(e.touches); 
+            lastDistance = null;
+            lastAngle = null;
+            lastTouch = null;
+
+            if (touchPoints.length === 1) {
+                // 單指：準備進行拖曳旋轉
+                lastTouch = { x: touchPoints[0].clientX, y: touchPoints[0].clientY };
+            } else if (touchPoints.length >= 2) {
+                // 兩指或多指：準備進行縮放和角度旋轉
+                lastDistance = getDistance(touchPoints[0], touchPoints[1]);
+                lastAngle = getAngle(touchPoints[0], touchPoints[1]);
+            }
+        });
+
+        phoneContainer.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const newTouchPoints = Array.from(e.touches);
+            
+            if (newTouchPoints.length === 1 && lastTouch) {
+                // --- 單指拖曳：旋轉模型 ---
+                const currentX = newTouchPoints[0].clientX;
+                const currentY = newTouchPoints[0].clientY;
+
+                // 計算移動的距離
+                const deltaX = currentX - lastTouch.x;
+                const deltaY = currentY - lastTouch.y;
+
+                // 旋轉角度，除以係數來控制靈敏度
+                rotationY += deltaX * 0.5;
+                rotationX -= deltaY * 0.5;
+                
+                // 更新上一次的位置
+                lastTouch = { x: currentX, y: currentY };
+
+            } else if (newTouchPoints.length >= 2 && lastDistance !== null) {
+                // --- 兩指：縮放與平面旋轉 ---
+
+                const newDistance = getDistance(newTouchPoints[0], newTouchPoints[1]);
+                const newAngle = getAngle(newTouchPoints[0], newTouchPoints[1]);
+
+                // 1. 縮放 (Pinch to Zoom)
+                // 距離變化量
+                const scaleFactor = newDistance / lastDistance;
+                currentScale *= scaleFactor; 
+
+                // 限制縮放範圍 (例如 0.5 到 3.0)
+                currentScale = Math.min(Math.max(0.5, currentScale), 3.0);
+
+                // 2. 旋轉 (Optional: 兩指繞中心點旋轉)
+                // 角度變化量
+                const angleDelta = newAngle - lastAngle;
+                
+                // 將兩指的平面旋轉應用到 Y 軸（或 Z 軸，取決於視角）
+                // 這裡我們將它輕微地應用到 Y 軸，以實現兩指拖曳的側向旋轉
+                rotationY += angleDelta * 0.2; 
+                
+                // 更新上一次的距離和角度
+                lastDistance = newDistance;
+                lastAngle = newAngle;
+            }
+
+            // 應用變換
+            updateTransform();
+        });
+
+        phoneContainer.addEventListener('touchend', (e) => {
+            // 更新當前觸控點列表
+            touchPoints = Array.from(e.touches);
+            
+            // 如果所有手指都離開了，重置所有追蹤變數
+            if (touchPoints.length === 0) {
+                lastDistance = null;
+                lastAngle = null;
+                lastTouch = null;
+            } else if (touchPoints.length === 1) {
+                 // 如果只剩下一根手指，準備轉換為單指拖曳模式
+                lastTouch = { x: touchPoints[0].clientX, y: touchPoints[0].clientY };
+                lastDistance = null;
+                lastAngle = null;
+            } else if (touchPoints.length >= 2) {
+                // 兩指以上繼續
+                lastDistance = getDistance(touchPoints[0], touchPoints[1]);
+                lastAngle = getAngle(touchPoints[0], touchPoints[1]);
+                lastTouch = null;
+            }
+        });
+
+        // 確保初始狀態正確
+        updateTransform();
+    </script>
+</body>
+</html>
