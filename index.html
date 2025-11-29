@@ -2,221 +2,415 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D 模型與程式設計區塊</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>響應式 3D 模型與無限編輯器</title>
     <style>
-        /* ------------------ 基礎樣式與佈局 ------------------ */
+        /* ------------------ 基礎與全局樣式 ------------------ */
         body {
             margin: 0;
             display: flex;
-            min-height: 100vh;
             background-color: #1a1a1a;
             color: white;
             font-family: Arial, sans-serif;
             overflow: hidden; 
+            min-height: 100vh;
         }
 
-        /* ------------------ 左側程式設計區塊欄位 (Sidebar) ------------------ */
-        #blocky-sidebar {
-            width: 250px;
-            background-color: #2c2c2c;
-            padding: 15px;
+        /* ------------------ 佈局容器 ------------------ */
+        #app-container {
+            display: flex;
+            width: 100%;
+            height: 100vh;
+        }
+        
+        /* ------------------ 1. 側邊 Blocky 功能面板 ------------------ */
+        #blocky-panel {
+            position: fixed;
+            top: 0;
+            left: 0;
+            height: 100vh;
+            background-color: #2c3e50;
+            padding: 10px;
             box-shadow: 2px 0 5px rgba(0, 0, 0, 0.5);
-            /* 預設在電腦版是固定顯示 */
-            position: relative; 
-            flex-shrink: 0; /* 防止被擠壓 */
-            transition: transform 0.3s ease-out;
+            transition: transform 0.3s ease-out, width 0.3s ease-out, padding 0.3s ease-out;
+            z-index: 1000; 
             overflow-y: auto;
         }
+        #close-btn {
+            position: sticky; 
+            top: 0;
+            float: right;
+            background: #34495e;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 16px;
+            margin-bottom: 10px;
+        }
+        /* Blocky 積木樣式模擬 */
+        .blocky-group h4 { color: #bdc3c7; margin-top: 15px; border-bottom: 1px solid #34495e; padding-bottom: 5px; }
+        .blocky-item { list-style: none; padding: 8px 12px; margin: 8px 0; border-radius: 5px; cursor: grab; font-weight: bold; font-size: 14px; box-shadow: 1px 1px 3px rgba(0, 0, 0, 0.3); }
+        .blocky-control { background-color: #e74c3c; } 
+        .blocky-data { background-color: #3498db; }  
+        .blocky-logic { background-color: #2ecc71; } 
 
-        .blocky-title {
-            font-size: 1.2em;
-            margin-bottom: 15px;
-            color: #4CAF50; /* 綠色標題 */
-            border-bottom: 2px solid #444;
-            padding-bottom: 5px;
+        /* ------------------ 2. 主內容區域 (3D 模型 / 編輯器) ------------------ */
+        #main-content {
+            flex-grow: 1; 
+            display: flex; 
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            position: relative; 
+            transition: margin-left 0.3s ease-out;
+            margin-left: 0; 
         }
 
-        .blocky-item {
-            background-color: #555;
-            color: white;
-            padding: 8px 12px;
-            margin-bottom: 10px;
-            border-radius: 5px;
+        /* 核心視圖定位：確保兩者絕對定位並佔滿父容器 */
+        #model-view, #editor-view {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+        
+        /* ------------------ 3D 模型視圖樣式 ------------------ */
+        .view-3d #model-view { 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+        }
+        .view-3d #editor-view { display: none; } 
+        #phone-container { width: 300px; height: 600px; perspective: 1500px; transform-origin: center center; cursor: grab; touch-action: none; }
+        #iphone-body { width: 100%; height: 100%; position: relative; transform-style: preserve-3d; transition: transform 0.1s ease-out; }
+        .face { position: absolute; width: 300px; height: 600px; border-radius: 40px; border: 5px solid #222; background: #444; opacity: 0.95; --thickness: 10px; }
+        .front { background: radial-gradient(circle at 70% 30%, #444, #111); transform: translateZ(var(--thickness)); }
+        .back { background: linear-gradient(135deg, #a7a9ac, #6c6f71); transform: rotateY(180deg) translateZ(var(--thickness)); }
+
+        /* ------------------ 3. 無限編輯器視圖樣式 ------------------ */
+        .view-editor #model-view { display: none; } 
+        .view-editor #editor-view { 
+            display: block; 
+            overflow: hidden; 
+            position: relative; 
+        }
+        
+        #infinite-canvas-container {
+            position: absolute;
+            width: 3000px; 
+            height: 3000px;
+            background: linear-gradient(-90deg, #2a2a2a 1px, transparent 1px),
+                        linear-gradient(#2a2a2a 1px, transparent 1px);
+            background-size: 50px 50px; 
             cursor: grab;
-            font-size: 0.9em;
-            text-align: center;
-            box-shadow: 0 2px 0 #333;
+            user-select: none;
+        }
+
+        /* 編輯器頂部控制按鈕 (僅在編輯器視圖中生效) */
+        .view-editor #editor-controls {
+            position: absolute;
+            top: 20px; /* 與漢堡按鈕垂直對齊 */
+            left: 75px; /* 關鍵修正：推到漢堡按鈕右側 (20px margin + 40px button + 15px gap) */
+            z-index: 10;
+        }
+        
+        #editor-controls button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-right: 10px;
+            font-size: 14px;
+        }
+        /* 在 3D 視圖中隱藏 controls，避免干擾 */
+        .view-3d #editor-controls {
+            display: none;
+        }
+
+
+        /* ------------------ 4. 右下角編輯器切換按鈕 (僅電腦版顯示) ------------------ */
+        #editor-switch-btn {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background-color: #2ecc71;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            display: none; 
+            z-index: 500;
+        }
+        
+        /* ------------------ 5. 手機長按/右鍵選單 ------------------ */
+        #context-menu {
+            position: fixed;
+            background-color: #333;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            z-index: 2000;
+            max-height: 200px; 
+            overflow-y: auto;
+            display: none; 
+        }
+        #context-menu li {
+            padding: 10px 20px;
+            cursor: pointer;
+            white-space: nowrap;
+            border-bottom: 1px solid #444;
             transition: background-color 0.2s;
         }
-
-        .blocky-item:hover {
-            background-color: #666;
+        #context-menu li:hover {
+            background-color: #555;
         }
+        #context-menu li:last-child {
+            border-bottom: none;
+        }
+
+        /* ------------------ 6. 響應式佈局 (Media Queries) ------------------ */
         
-        .type-control { background-color: #03A9F4; box-shadow: 0 2px 0 #0288D1; } /* 藍色控制流 */
-        .type-logic { background-color: #FF9800; box-shadow: 0 2px 0 #F57C00; } /* 橘色邏輯 */
-        .type-data { background-color: #9C27B0; box-shadow: 0 2px 0 #7B1FA2; } /* 紫色資料 */
-
-
-        /* ------------------ 右側 3D 區域 ------------------ */
-        #main-content {
-            flex-grow: 1;
+        /* 漢堡按鈕基礎樣式 (三條線) - 確保間距正確 */
+        .hamburger-btn {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            width: 30px;
+            height: 24px; /* 容納三條線的總高度 */
+            background: rgba(0, 0, 0, 0.7);
+            border: none;
+            border-radius: 4px;
+            z-index: 1001;
+            padding: 6px 5px; /* 稍微減少 padding，給線條更多空間 */
             display: flex;
             flex-direction: column;
-            align-items: center;
-            justify-content: center;
-        }
-
-        /* ------------------ 手機版漢堡選單按鈕 ------------------ */
-        #menu-button {
-            position: fixed;
-            top: 15px;
-            left: 15px;
-            width: 40px;
-            height: 40px;
-            background-color: rgba(0, 0, 0, 0.6);
-            border-radius: 5px;
-            z-index: 1000;
+            justify-content: space-between; /* 均勻分佈三條線 */
             cursor: pointer;
-            display: none; /* 預設隱藏，僅手機版顯示 */
-            align-items: center;
-            justify-content: center;
         }
-
-        .bar {
-            width: 25px;
-            height: 3px;
-            background-color: white;
-            margin: 4px 0;
-            transition: 0.4s;
+        .hamburger-btn span {
             display: block;
+            height: 3px; 
+            width: 100%;
+            background: white;
+            border-radius: 1px;
         }
-        
-        /* ------------------ 響應式佈局 (Media Queries) ------------------ */
 
-        /* 螢幕寬度小於 768px (視為手機/平板) */
+        /* 手機版 (Mobile < 769px) */
         @media (max-width: 768px) {
+            #blocky-panel {
+                width: 33.33vw; 
+                min-width: 100px;
+                transform: translateX(-100%); 
+            }
+            #blocky-panel.open {
+                transform: translateX(0);
+            }
+            #editor-switch-btn { display: none; }
+            .desktop-restore { display: none !important; }
+        }
+
+        /* 電腦版 (Desktop >= 769px) */
+        @media (min-width: 769px) {
+            .hamburger-btn:not(.desktop-restore) {
+                display: none; 
+            }
+            #blocky-panel {
+                width: 33.33vw; 
+                max-width: 300px; 
+                position: relative; 
+                transform: translateX(0); 
+                padding: 10px;
+            }
+            #blocky-panel.hidden {
+                width: 0;
+                padding: 0;
+                box-shadow: none;
+                pointer-events: none; 
+            }
             
-            /* 1. 手機版：隱藏左側欄，並將其移動到螢幕左邊 */
-            #blocky-sidebar {
+            #editor-switch-btn { display: block; }
+
+            .desktop-restore {
+                display: none; 
                 position: fixed;
-                top: 0;
-                left: 0;
-                height: 100%;
-                z-index: 999;
-                transform: translateX(-100%); /* 初始滑出螢幕 */
+                left: 20px;
+                top: 20px;
+                z-index: 1001;
             }
-
-            /* 手機版：選單開啟時的狀態 */
-            #blocky-sidebar.open {
-                transform: translateX(0); /* 滑入螢幕 */
-            }
-
-            /* 2. 手機版：顯示漢堡按鈕 */
-            #menu-button {
-                display: flex;
+            #blocky-panel.hidden ~ #main-content .desktop-restore {
+                display: flex; 
+                pointer-events: auto; 
             }
         }
-
-
-        /* ------------------ 3D 模型樣式 (繼承前一版本) ------------------ */
-        
-        #phone-container {
-            width: 300px;
-            height: 600px;
-            perspective: 1500px;
-            transform-origin: center center;
-            cursor: grab;
-        }
-        #phone-container.dragging { cursor: grabbing; }
-
-        #iphone-body {
-            width: 100%; height: 100%; position: relative;
-            transform-style: preserve-3d; 
-            transform: scale(1) rotateX(15deg) rotateY(-45deg); 
-            transition: transform 0.1s ease-out;
-        }
-
-        /* ... (其餘 .face 樣式保持不變，為節省篇幅省略) ... */
-        .face { position: absolute; width: 300px; height: 600px; box-sizing: border-box; border-radius: 40px; border: 5px solid #222; opacity: 0.95; --thickness: 10px; backface-visibility: hidden; }
-        .front { background: radial-gradient(circle at 70% 30%, #444, #111); transform: translateZ(var(--thickness)); border-color: #000; }
-        .back { background: linear-gradient(135deg, #a7a9ac, #6c6f71); transform: rotateY(180deg) translateZ(var(--thickness)); }
-        .top { width: 300px; height: calc(2 * var(--thickness)); background-color: #444; transform: rotateX(90deg) translateZ(calc(var(--thickness) + 300px)); border-radius: 40px 40px 0 0; }
-        .bottom { width: 300px; height: calc(2 * var(--thickness)); background-color: #444; transform: rotateX(-90deg) translateZ(calc(600px - var(--thickness))); border-radius: 0 0 40px 40px; }
-        .right { width: calc(2 * var(--thickness)); height: 600px; background-color: #444; transform: rotateY(90deg) translateZ(calc(300px - var(--thickness))); border-radius: 0 40px 40px 0; }
-        .left { width: calc(2 * var(--thickness)); height: 600px; background-color: #444; transform: rotateY(-90deg) translateZ(calc(var(--thickness))); border-radius: 40px 0 0 40px; }
-        #dynamic-island { position: absolute; width: 80px; height: 30px; background: black; border-radius: 15px; top: 15px; left: 50%; transform: translateX(-50%); }
-
-        /* 隱藏資訊 */
-        #controls-info { display: none; }
-
     </style>
 </head>
 <body>
 
-    <div id="menu-button">
-        <span class="bar"></span>
-        <span class="bar"></span>
-        <span class="bar"></span>
-    </div>
-
-    <div id="blocky-sidebar">
-        <div class="blocky-title">控制流 (Control Flow)</div>
-        <div class="blocky-item type-control">IF 條件判斷 (If Statement)</div>
-        <div class="blocky-item type-control">ELSE-IF 否則判斷 (Else-If)</div>
-        <div class="blocky-item type-control">WHILE 迴圈 (While Loop)</div>
-        <div class="blocky-item type-control">FOR 迴圈 (For Loop)</div>
-        <div class="blocky-item type-control">BREAK 跳出 (Break)</div>
-
-        <div class="blocky-title">邏輯與運算 (Logic & Ops)</div>
-        <div class="blocky-item type-logic">AND 且 (AND)</div>
-        <div class="blocky-item type-logic">OR 或 (OR)</div>
-        <div class="blocky-item type-logic">NOT 非 (NOT)</div>
-        <div class="blocky-item type-logic">運算式 (Arithmetic)</div>
-        
-        <div class="blocky-title">結構與資料 (Structure & Data)</div>
-        <div class="blocky-item type-data">STRUCT 定義/類別 (Define Class/Struct)</div>
-        <div class="blocky-item type-data">FUNCTION 函數 (Function/Method)</div>
-        <div class="blocky-item type-data">變數宣告 (Variable Declaration)</div>
-        <div class="blocky-item type-data">陣列/列表 (Array/List)</div>
-    </div>
-
-    <div id="main-content">
-        <div id="phone-container">
-            <div id="iphone-body">
-                <div class="face front">
-                    <div id="dynamic-island"></div>
-                </div>
-                <div class="face back"></div>
-                <div class="face top"></div>
-                <div class="face bottom"></div>
-                <div class="face right"></div>
-                <div class="face left"></div>
+    <div id="app-container">
+        <!-- 1. Blocky 功能面板 (預設隱藏) -->
+        <aside id="blocky-panel">
+            <button id="close-btn" onclick="toggleSidebar()">縮進</button>
+            <h2>Blocky 功能列表</h2>
+            <div class="blocky-group">
+                <h4>控制 (Control)</h4>
+                <ul>
+                    <li class="blocky-item blocky-control">if 條件判斷</li>
+                    <li class="blocky-item blocky-control">else 否則執行</li>
+                    <li class="blocky-item blocky-control">while 迴圈</li>
+                    <li class="blocky-item blocky-control">for 迴圈</li>
+                </ul>
             </div>
-        </div>
+            <div class="blocky-group">
+                <h4>數據與結構 (Data & Struct)</h4>
+                <ul>
+                    <li class="blocky-item blocky-data">Struct 定義</li>
+                    <li class="blocky-item blocky-data">變量初始化</li>
+                    <li class="blocky-item blocky-data">陣列 Array</li>
+                    <li class="blocky-item blocky-data">列表 List</li>
+                </ul>
+            </div>
+            <div class="blocky-group">
+                <h4>邏輯與運算 (Logic & Math)</h4>
+                <ul>
+                    <li class="blocky-item blocky-logic">AND 且 / OR 或</li>
+                    <li class="blocky-item blocky-logic">Not 非</li>
+                </ul>
+            </div>
+        </aside>
+
+        <!-- 2. 主內容區域 (3D 模型 / 編輯器) -->
+        <section id="main-content" class="view-3d">
+            
+            <!-- 手機版的三條線按鈕 -->
+            <button class="hamburger-btn" onclick="toggleSidebar()">
+                <span></span><span></span><span></span>
+            </button>
+            <!-- 電腦版隱藏 Blocky 後重新顯示的按鈕 -->
+            <button class="hamburger-btn desktop-restore" onclick="toggleSidebar()">
+                <span></span><span></span><span></span>
+            </button>
+            
+            <!-- A. 3D 模型視圖 -->
+            <div id="model-view">
+                <div id="phone-container">
+                    <div id="iphone-body">
+                        <div class="face front"><div id="dynamic-island"></div></div>
+                        <div class="face back"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- B. 無限編輯器視圖 -->
+            <div id="editor-view">
+                
+                <div id="editor-controls">
+                    <!-- 修正切換參數為 '3d' -->
+                    <button id="visual-design-btn" onclick="switchView('3d')">視覺化設計 (3D 模型)</button>
+                </div>
+                
+                <!-- 無限平面 -->
+                <div id="infinite-canvas-container">
+                    <h1 style="color:rgba(255,255,255,0.2); position:absolute; top: 1500px; left: 1500px; transform:translate(-50%, -50%);">
+                        無限編輯平面 (拖曳移動)
+                    </h1>
+                </div>
+
+                <!-- 手機長按/電腦右鍵選單 -->
+                <ul id="context-menu" onclick="hideContextMenu()">
+                    <li>beginplay 啟動</li>
+                    <li>print 輸出</li>
+                    <li>if 條件判斷</li>
+                    <li>else 否則執行</li>
+                    <li>while 迴圈</li>
+                    <li>Struct 結構體</li>
+                    <li>Function 函數</li>
+                    <li>Variable 變數</li>
+                    <li>Array 陣列</li>
+                </ul>
+            </div>
+            
+            <!-- 右下角編輯器切換按鈕 (電腦版) -->
+            <button id="editor-switch-btn" onclick="switchView('editor')">
+                進入編輯器
+            </button>
+        </section>
     </div>
     
     <script>
-        // JavaScript 交互邏輯區域
-
         const phoneBody = document.getElementById('iphone-body');
-        const phoneContainer = document.getElementById('phone-container');
-        const sidebar = document.getElementById('blocky-sidebar');
-        const menuButton = document.getElementById('menu-button');
+        const blockyPanel = document.getElementById('blocky-panel');
+        const mainContent = document.getElementById('main-content');
+        const closeBtn = document.getElementById('close-btn');
+        const canvasContainer = document.getElementById('infinite-canvas-container');
+        const contextMenu = document.getElementById('context-menu');
+        const editorView = document.getElementById('editor-view');
+        const visualDesignBtn = document.getElementById('visual-design-btn');
+
+        // ------------------ 視圖切換與響應式邏輯 ------------------
+
+        function isMobile() {
+            return window.innerWidth <= 768;
+        }
+
+        function switchView(viewName) {
+            // viewName 應為 '3d' 或 'editor'
+            mainContent.className = `view-${viewName}`;
+            hideContextMenu();
+        }
+
+        function toggleSidebar() {
+            if (isMobile()) {
+                // 手機版：切換 open 類別
+                blockyPanel.classList.toggle('open');
+            } else {
+                // 電腦版：切換 hidden 類別
+                const isHidden = !blockyPanel.classList.contains('hidden');
+                
+                if (isHidden) {
+                    blockyPanel.classList.add('hidden');
+                    closeBtn.style.display = 'none'; 
+                } else {
+                    blockyPanel.classList.remove('hidden');
+                    closeBtn.style.display = 'block'; 
+                }
+                closeBtn.textContent = isHidden ? '展開' : '縮進';
+            }
+        }
         
-        // 初始 3D 變數 (與前一版本相同)
+        // 初始化：根據設備設置初始狀態 (預設隱藏 Blocky)
+        window.addEventListener('load', () => {
+            if (!isMobile()) {
+                // 電腦版：初始設置為隱藏
+                blockyPanel.classList.add('hidden'); 
+                closeBtn.style.display = 'none'; 
+                closeBtn.textContent = '展開';
+            } else {
+                // 手機版：初始設置為隱藏
+                blockyPanel.classList.remove('open'); 
+                closeBtn.textContent = '縮進';
+            }
+        });
+
+        // ------------------ 3D 模型互動邏輯 (保持不變) ------------------
+
         let currentScale = 1;
         let rotationX = 15;
         let rotationY = -45;
-        let isDragging = false;
+        let is3DDragging = false;
         let lastMouseX = 0;
         let lastMouseY = 0;
-
         const rotationSensitivity = 0.5;
         const scaleStep = 0.1;
-
-        // ------------------ 輔助函數 ------------------
 
         function updateTransform() {
             phoneBody.style.transform = `
@@ -226,71 +420,170 @@
             `;
         }
         
-        // ------------------ 1. 響應式菜單控制 ------------------
-        
-        menuButton.addEventListener('click', () => {
-            // 切換 sidebar 的 'open' 類別來控制滑入/滑出動畫
-            sidebar.classList.toggle('open');
-        });
-
-        // ------------------ 2. 滑鼠滾輪和拖曳 (與前一版本相同) ------------------
-
-        // 滑鼠按下 (開始拖曳)
-        phoneContainer.addEventListener('mousedown', (e) => {
-            if (e.button !== 0) return; 
-            isDragging = true;
-            lastMouseX = e.clientX;
-            lastMouseY = e.clientY;
-            phoneContainer.classList.add('dragging');
-        });
-
-        // 滑鼠移動 (正在拖曳)
-        document.addEventListener('mousemove', (e) => {
-            if (!isDragging) return;
-
-            const deltaX = e.clientX - lastMouseX;
-            const deltaY = e.clientY - lastMouseY;
-
-            rotationY += deltaX * rotationSensitivity;
-            rotationX -= deltaY * rotationSensitivity;
-
-            lastMouseX = e.clientX;
-            lastMouseY = e.clientY;
-
-            updateTransform();
-        });
-
-        // 滑鼠放開 (結束拖曳)
-        document.addEventListener('mouseup', () => {
-            isDragging = false;
-            phoneContainer.classList.remove('dragging');
-        });
-
-        // 滑鼠滾輪縮放
+        const phoneContainer = document.getElementById('phone-container');
         phoneContainer.addEventListener('wheel', (e) => {
-            e.preventDefault(); 
-
-            if (e.deltaY < 0) {
-                currentScale += scaleStep;
-            } else {
-                currentScale -= scaleStep;
-            }
-
-            currentScale = Math.min(Math.max(0.3, currentScale), 3.0);
-
-            updateTransform();
+            if (mainContent.classList.contains('view-3d')) { e.preventDefault(); currentScale += (e.deltaY < 0 ? scaleStep : -scaleStep); currentScale = Math.min(Math.max(0.3, currentScale), 3.0); updateTransform(); }
         });
-
-        // 確保初始狀態正確
+        phoneContainer.addEventListener('mousedown', (e) => {
+            if (mainContent.classList.contains('view-3d') && e.button === 0) { is3DDragging = true; lastMouseX = e.clientX; lastMouseY = e.clientY; phoneContainer.classList.add('dragging'); }
+        });
+        document.addEventListener('mousemove', (e) => {
+            if (!is3DDragging) return; rotationY += (e.clientX - lastMouseX) * rotationSensitivity; rotationX -= (e.clientY - lastMouseY) * rotationSensitivity; lastMouseX = e.clientX; lastMouseY = e.clientY; updateTransform();
+        });
+        document.addEventListener('mouseup', () => {
+            if (is3DDragging) { is3DDragging = false; phoneContainer.classList.remove('dragging'); }
+        });
         updateTransform();
+
+        // ------------------ 無限編輯器互動邏輯 ------------------
         
-        // --- 額外：處理手機版點擊 3D 區域時關閉菜單 ---
-        document.getElementById('main-content').addEventListener('click', () => {
-            // 檢查 sidebar 是否有 'open' 類別，並且當前螢幕是小螢幕
-            if (sidebar.classList.contains('open') && window.innerWidth <= 768) {
-                 sidebar.classList.remove('open');
+        let isEditorDragging = false;
+        let startX = 0;
+        let startY = 0;
+        let currentTranslateX = -1000;
+        let currentTranslateY = -1000;
+        let longPressTimer = null;
+        const LONG_PRESS_DURATION = 500; 
+
+        // 初始設定 Canvas 的平移
+        canvasContainer.style.transform = `translate(${currentTranslateX}px, ${currentTranslateY}px)`;
+
+
+        // 顯示選單
+        function showContextMenu(x, y) {
+            contextMenu.style.left = `${x}px`;
+            contextMenu.style.top = `${y}px`;
+            contextMenu.style.display = 'block';
+        }
+
+        // 隱藏選單
+        function hideContextMenu() {
+            contextMenu.style.display = 'none';
+        }
+
+        // 處理長按 (僅手機版)
+        function handleLongPress(e, x, y) {
+             if (isMobile()) {
+                const clientX = e.touches ? e.touches[0].clientX : x;
+                const clientY = e.touches ? e.touches[0].clientY : y;
+                showContextMenu(clientX, clientY);
+            }
+        }
+        
+        // ----------------- 右鍵選單事件處理 (電腦版) -----------------
+        editorView.addEventListener('contextmenu', (e) => {
+            if (!isMobile() && mainContent.classList.contains('view-editor')) {
+                e.preventDefault(); // 阻止瀏覽器默認右鍵選單
+                // 只有點擊在編輯器視圖內且不是在控制按鈕上才顯示選單
+                if (!e.target.closest('#editor-controls button')) {
+                    showContextMenu(e.clientX, e.clientY);
+                }
             }
         });
+
+        // 點擊空白處關閉選單 (針對電腦和手機)
+        document.addEventListener('click', (e) => {
+            // 如果點擊目標不是選單本身，且我們在編輯器視圖內
+            if (!contextMenu.contains(e.target) && mainContent.classList.contains('view-editor')) {
+                hideContextMenu();
+            }
+        });
+
+        // 統一處理滑鼠/觸摸開始
+        function handleEditorStart(e) {
+            if (!mainContent.classList.contains('view-editor')) return;
+            
+            // 點擊事件後隱藏選單
+            hideContextMenu();
+
+            const isTouch = e.touches;
+            const clientX = isTouch ? e.touches[0].clientX : e.clientX;
+            const clientY = isTouch ? e.touches[0].clientY : e.clientY;
+            
+            // 修正拖曳邏輯：如果點擊目標是 controls 裡的按鈕、選單或漢堡按鈕，則不拖曳
+            if (e.target.closest('#editor-controls button') || e.target.closest('#context-menu li') || e.target.closest('.hamburger-btn')) {
+                return; 
+            }
+            
+            // 啟動拖曳 (非右鍵)
+            if (e.button !== 2) { 
+                isEditorDragging = true;
+                startX = clientX;
+                startY = clientY;
+                
+                // 獲取當前平移值
+                const style = window.getComputedStyle(canvasContainer);
+                const transform = style.transform === 'none' ? 'matrix(1, 0, 0, 1, 0, 0)' : style.transform;
+                const matrix = transform.match(/matrix.*\((.+)\)/);
+                if (matrix) {
+                     const values = matrix[1].split(', ');
+                     currentTranslateX = parseFloat(values[4]);
+                     currentTranslateY = parseFloat(values[5]);
+                }
+            }
+
+
+            // 只有手機版啟動長按計時器
+            if (isTouch && isMobile()) {
+                e.preventDefault(); 
+                longPressTimer = setTimeout(() => {
+                    handleLongPress(e, clientX, clientY);
+                    isEditorDragging = false; // 長按觸發後，阻止拖曳
+                }, LONG_PRESS_DURATION);
+            }
+        }
+
+        // 統一處理滑鼠/觸摸移動
+        function handleEditorMove(e) {
+            if (!isEditorDragging) return;
+            
+            if (longPressTimer) {
+                clearTimeout(longPressTimer);
+                longPressTimer = null;
+            }
+
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+            const deltaX = clientX - startX;
+            const deltaY = clientY - startY;
+
+            canvasContainer.style.transform = `translate(${currentTranslateX + deltaX}px, ${currentTranslateY + deltaY}px)`;
+        }
+
+        // 統一處理滑鼠/觸摸結束
+        function handleEditorEnd(e) {
+            if (!mainContent.classList.contains('view-editor')) return;
+            
+            if (longPressTimer) {
+                clearTimeout(longPressTimer);
+                longPressTimer = null;
+            }
+
+            if (isEditorDragging) {
+                // 記錄最終位置
+                const style = window.getComputedStyle(canvasContainer);
+                const transform = style.transform === 'none' ? 'matrix(1, 0, 0, 1, 0, 0)' : style.transform;
+                const matrix = transform.match(/matrix.*\((.+)\)/);
+                if (matrix) {
+                    const values = matrix[1].split(', ');
+                    currentTranslateX = parseFloat(values[4]);
+                    currentTranslateY = parseFloat(values[5]);
+                }
+                isEditorDragging = false;
+            }
+        }
+        
+        // 為編輯器添加拖曳/觸摸事件監聽器
+        document.addEventListener('mousedown', handleEditorStart);
+        document.addEventListener('mousemove', handleEditorMove);
+        document.addEventListener('mouseup', handleEditorEnd);
+        document.addEventListener('touchstart', handleEditorStart);
+        document.addEventListener('touchmove', handleEditorMove);
+        document.addEventListener('touchend', handleEditorEnd);
+        
+        // 阻止在編輯器中拖曳圖片或文字的瀏覽器預設行為
+        editorView.ondragstart = () => false;
     </script>
 </body>
 </html>
