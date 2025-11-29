@@ -84,6 +84,7 @@
             align-items: center; 
         }
         .view-3d #editor-view { display: none; } 
+        /* touch-action: none 確保觸摸事件不會被瀏覽器預設行為（如滾動）干擾 */
         #phone-container { width: 300px; height: 600px; perspective: 1500px; transform-origin: center center; cursor: grab; touch-action: none; }
         #iphone-body { width: 100%; height: 100%; position: relative; transform-style: preserve-3d; transition: transform 0.1s ease-out; }
         .face { position: absolute; width: 300px; height: 600px; border-radius: 40px; border: 5px solid #222; background: #444; opacity: 0.95; --thickness: 10px; }
@@ -145,7 +146,8 @@
             cursor: pointer;
             font-size: 16px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
-            display: block; /* 確保在任何情況下都顯示 */
+            /* 修正: 確保在任何視圖下都能顯示，並且 z-index 高於其他內容 */
+            display: block; 
             z-index: 500;
         }
         
@@ -214,7 +216,10 @@
             #blocky-panel.open {
                 transform: translateX(0);
             }
-            /* 移除了隱藏 #editor-switch-btn 的規則 */
+            /* 修正: 確保手機版上的「進入編輯器」按鈕也顯示 */
+            #editor-switch-btn { 
+                display: block !important; 
+            }
             .desktop-restore { display: none !important; }
         }
 
@@ -237,6 +242,10 @@
                 pointer-events: none; 
             }
             
+            #editor-switch-btn { 
+                display: block; /* 電腦版維持顯示 */
+            }
+
             .desktop-restore {
                 display: none; 
                 position: fixed;
@@ -356,10 +365,10 @@
         let rotationX = 15;
         let rotationY = -45;
         let is3DDragging = false;
-        let is3DTouching = false; // 新增：用於判斷是否處於單指觸摸旋轉狀態
+        let is3DTouching = false;
         let lastMouseX = 0;
         let lastMouseY = 0;
-        let initialPinchDistance = null; // 新增：用於雙指縮放
+        let initialPinchDistance = null;
         const rotationSensitivity = 0.5;
         const scaleStep = 0.1;
 
@@ -414,7 +423,7 @@
             updateTransform();
         });
 
-        // ------------------ 3D 模型互動邏輯 ------------------
+        // ------------------ 3D 模型互動邏輯 (包含手勢) ------------------
 
         function updateTransform() {
             phoneBody.style.transform = `
@@ -469,53 +478,46 @@
         // 手機 - 觸摸開始 (旋轉或縮放)
         phoneContainer.addEventListener('touchstart', (e) => {
             if (!mainContent.classList.contains('view-3d')) return;
-            e.preventDefault(); 
+            // 不在這裡使用 e.preventDefault()，因為這可能會干擾單指滾動頁面或其他元素
             
             if (e.touches.length === 1) {
-                // 單指：準備旋轉
                 is3DTouching = true;
                 lastMouseX = e.touches[0].clientX;
                 lastMouseY = e.touches[0].clientY;
-                initialPinchDistance = null; // 重置雙指距離
+                initialPinchDistance = null; 
             } else if (e.touches.length === 2) {
-                // 雙指：準備縮放
+                // 雙指操作時阻止預設行為，防止頁面縮放或滾動
+                e.preventDefault(); 
                 is3DTouching = false;
                 initialPinchDistance = getDistance(e.touches[0], e.touches[1]);
             }
-        });
+        }, { passive: false });
 
         // 手機 - 觸摸移動 (執行旋轉或縮放)
         phoneContainer.addEventListener('touchmove', (e) => {
             if (!mainContent.classList.contains('view-3d')) return;
-            e.preventDefault(); 
 
             if (e.touches.length === 1 && is3DTouching) {
-                // 單指旋轉邏輯
-                rotationY += (e.touches[0].clientX - lastMouseX) * rotationSensitivity * 2; // 提高靈敏度
+                e.preventDefault(); // 單指在 3D 模型上移動時阻止頁面滾動
+                rotationY += (e.touches[0].clientX - lastMouseX) * rotationSensitivity * 2; 
                 rotationX -= (e.touches[0].clientY - lastMouseY) * rotationSensitivity * 2;
                 lastMouseX = e.touches[0].clientX;
                 lastMouseY = e.touches[0].clientY;
                 updateTransform();
             } else if (e.touches.length === 2 && initialPinchDistance !== null) {
-                // 雙指縮放邏輯
+                e.preventDefault(); // 雙指操作時阻止頁面滾動
                 const currentDistance = getDistance(e.touches[0], e.touches[1]);
-                
-                // 計算比例變化
                 const scaleFactor = currentDistance / initialPinchDistance;
                 
-                // 根據比例調整 scale
                 let newScale = currentScale * scaleFactor;
-                
-                // 限制縮放範圍
                 newScale = Math.min(Math.max(0.3, newScale), 3.0);
                 
-                // 為了連續縮放，我們需要記錄新的 scale 並將當前距離設為下一個 initialPinchDistance
                 currentScale = newScale;
                 initialPinchDistance = currentDistance; 
                 
                 updateTransform();
             }
-        });
+        }, { passive: false });
 
         // 手機 - 觸摸結束 (停止操作)
         phoneContainer.addEventListener('touchend', () => {
@@ -568,7 +570,6 @@
         function handleEditorStart(e) {
             if (!mainContent.classList.contains('view-editor')) return;
             
-            // 點擊事件後隱藏選單
             hideContextMenu();
 
             const isTouch = e.touches;
@@ -580,13 +581,12 @@
                 return; 
             }
             
-            // 啟動拖曳 (非右鍵)
+            // 啟動拖曳 (非右鍵且單指觸摸)
             if (e.button !== 2 && (!isTouch || e.touches.length === 1)) { 
                 isEditorDragging = true;
                 startX = clientX;
                 startY = clientY;
                 
-                // 獲取當前平移值
                 const style = window.getComputedStyle(canvasContainer);
                 const transform = style.transform === 'none' ? 'matrix(1, 0, 0, 1, 0, 0)' : style.transform;
                 const matrix = transform.match(/matrix.*\((.+)\)/);
@@ -603,7 +603,7 @@
                 e.preventDefault(); 
                 longPressTimer = setTimeout(() => {
                     handleLongPress(e, clientX, clientY);
-                    isEditorDragging = false; // 長按觸發後，阻止拖曳
+                    isEditorDragging = false; 
                 }, LONG_PRESS_DURATION);
             }
         }
@@ -611,6 +611,7 @@
         // 統一處理滑鼠/觸摸移動
         function handleEditorMove(e) {
             if (!isEditorDragging) return;
+            e.preventDefault(); 
             
             if (longPressTimer) {
                 clearTimeout(longPressTimer);
@@ -648,10 +649,11 @@
             }
         }
         
-        // 將事件監聽器添加到文檔層級，以確保拖曳行為順暢
+        // 為編輯器添加拖曳/觸摸事件監聽器
         document.addEventListener('mousedown', handleEditorStart);
         document.addEventListener('mousemove', handleEditorMove);
         document.addEventListener('mouseup', handleEditorEnd);
+        // passive: false 確保我們可以阻止預設行為 (例如長按時阻止滾動)
         document.addEventListener('touchstart', handleEditorStart, { passive: false });
         document.addEventListener('touchmove', handleEditorMove, { passive: false });
         document.addEventListener('touchend', handleEditorEnd);
