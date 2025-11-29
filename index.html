@@ -1,77 +1,87 @@
-<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>iPhone 14 Pro 3D 網頁</title>
-    <style>
-        /* 1. 設置 3D 視角 */
-        #phone-container {
-            width: 300px;
-            height: 600px;
-            margin: 100px auto;
-            /* 關鍵：設置景深，數值越大，景深越淺 */
-            perspective: 1000px; 
-        }
+// 獲取 3D 方形元素
+const iphoneBody = document.getElementById('iphone-body');
 
-        /* 2. 設置 3D 空間 */
-        #iphone-body {
-            width: 100%;
-            height: 100%;
-            position: relative;
-            /* 關鍵：讓子元素能在 3D 空間中變換 */
-            transform-style: preserve-3d; 
-            /* 初始旋轉角度，讓它看起來是 3D 的 */
-            transform: rotateX(15deg) rotateY(-45deg); 
-            transition: transform 0.5s; /* 讓旋轉更平滑 */
-        }
+// 儲存當前 3D 狀態
+let currentXAngle = 15; // 初始 X 軸角度 (來自 CSS)
+let currentYAngle = -45; // 初始 Y 軸角度 (來自 CSS)
+let currentScale = 1;     // 初始縮放比例
 
-        /* 3. 定義一個 3D 方形的面 */
-        .face {
-            position: absolute;
-            width: 300px; /* 手機寬度 */
-            height: 600px; /* 手機高度 */
-            border: 1px solid #333; /* 邊框方便觀察 */
-            background-color: #555;
-            opacity: 0.8;
-            border-radius: 40px; /* 模擬手機圓角 */
-            box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.5);
-        }
+// 儲存觸控點資訊
+let startTouches = [];    // 儲存觸控開始時的點
+let isDragging = false;
 
-        /* 4. 定位手機的「前」面 (螢幕) */
-        .front {
-            background-color: black;
-            transform: translateZ(10px); /* 手機「厚度」的一半 */
-            /* 更多螢幕細節（Dynamic Island 等）將放在這裡面 */
-        }
+/**
+ * 計算兩點之間的距離
+ * @param {object} p1 - 第一個點 {clientX, clientY}
+ * @param {object} p2 - 第二個點 {clientX, clientY}
+ */
+function getDistance(p1, p2) {
+    const dx = p1.clientX - p2.clientX;
+    const dy = p1.clientY - p2.clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+}
 
-        /* 5. 定位手機的「後」面 (背板) */
-        .back {
-            background-color: #777; /* 模擬金屬背板 */
-            transform: rotateY(180deg) translateZ(10px); 
-        }
-
-        /* 更多面 (left, right, top, bottom) 需要類似的定位 */
-        /* ... */
-
-    </style>
-</head>
-<body>
-    <div id="phone-container">
-        <div id="iphone-body">
-            <div class="face front">
-                <div id="dynamic-island" style="width: 50px; height: 15px; background: black; border-radius: 10px; margin: 10px auto;"></div>
-            </div>
-
-            <div class="face back">
-                </div>
-
-            </div>
-    </div>
+// --- 觸控開始 ---
+iphoneBody.addEventListener('touchstart', (e) => {
+    // 阻止瀏覽器預設的行為（如滾動和放大縮小）
+    e.preventDefault(); 
     
-    <script>
-        // 這裡添加 JavaScript 拖曳交互邏輯 (略)
-        // 用來捕捉滑鼠/觸摸輸入，並動態更新 #iphone-body 的 transform 屬性
-    </script>
-</body>
-</html>
+    startTouches = e.touches;
+    isDragging = true;
+});
+
+// --- 觸控移動 ---
+iphoneBody.addEventListener('touchmove', (e) => {
+    if (!isDragging || e.touches.length === 0) return;
+
+    // 1. 旋轉 (適用於單指或多指)
+    if (e.touches.length >= 1) {
+        // 使用第一個觸控點的移動來計算旋轉
+        const touch = e.touches[0];
+        const startTouch = startTouches[0];
+        
+        // 移動量 (delta)
+        const dx = touch.clientX - startTouch.clientX;
+        const dy = touch.clientY - startTouch.clientY;
+
+        // 更新角度 (除以一個係數來控制旋轉速度)
+        currentYAngle += dx * 0.5; // 左右移動控制 Y 軸旋轉
+        currentXAngle -= dy * 0.5; // 上下移動控制 X 軸旋轉
+        
+        // 更新起始點，讓旋轉平滑
+        startTouches = e.touches;
+    }
+    
+    // 2. 縮放 (需要兩指)
+    if (e.touches.length === 2 && startTouches.length === 2) {
+        // 當前兩指距離
+        const currentDistance = getDistance(e.touches[0], e.touches[1]);
+        // 起始兩指距離
+        const startDistance = getDistance(startTouches[0], startTouches[1]);
+        
+        // 計算比例變化 (Ratio)
+        const scaleRatio = currentDistance / startDistance;
+        
+        // 將比例變化應用到當前縮放值
+        currentScale *= scaleRatio;
+        
+        // 更新起始點，讓縮放平滑
+        startTouches = e.touches;
+    }
+
+    // 3. 應用變換
+    iphoneBody.style.transform = 
+        `rotateX(${currentXAngle}deg) rotateY(${currentYAngle}deg) scale(${currentScale})`;
+});
+
+// --- 觸控結束 ---
+iphoneBody.addEventListener('touchend', (e) => {
+    if (e.touches.length === 0) {
+        isDragging = false;
+        // 清除起始觸控點，防止錯誤計算
+        startTouches = []; 
+    } else {
+        // 如果還有手指在螢幕上，更新起始觸控點
+        startTouches = e.touches;
+    }
+});
