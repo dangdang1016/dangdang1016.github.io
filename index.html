@@ -2,132 +2,198 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>iPhone 14 Pro 3D 觸控模型</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D 模型與程式設計區塊</title>
     <style>
-        /* CSS 樣式區域 */
+        /* ------------------ 基礎樣式與佈局 ------------------ */
         body {
             margin: 0;
             display: flex;
-            justify-content: center;
-            align-items: center;
             min-height: 100vh;
-            background-color: #f0f0f0;
-            overflow: hidden; /* 防止滾動 */
+            background-color: #1a1a1a;
+            color: white;
+            font-family: Arial, sans-serif;
+            overflow: hidden; 
         }
 
-        /* ------------------ 3D 容器設置 ------------------ */
+        /* ------------------ 左側程式設計區塊欄位 (Sidebar) ------------------ */
+        #blocky-sidebar {
+            width: 250px;
+            background-color: #2c2c2c;
+            padding: 15px;
+            box-shadow: 2px 0 5px rgba(0, 0, 0, 0.5);
+            /* 預設在電腦版是固定顯示 */
+            position: relative; 
+            flex-shrink: 0; /* 防止被擠壓 */
+            transition: transform 0.3s ease-out;
+            overflow-y: auto;
+        }
+
+        .blocky-title {
+            font-size: 1.2em;
+            margin-bottom: 15px;
+            color: #4CAF50; /* 綠色標題 */
+            border-bottom: 2px solid #444;
+            padding-bottom: 5px;
+        }
+
+        .blocky-item {
+            background-color: #555;
+            color: white;
+            padding: 8px 12px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            cursor: grab;
+            font-size: 0.9em;
+            text-align: center;
+            box-shadow: 0 2px 0 #333;
+            transition: background-color 0.2s;
+        }
+
+        .blocky-item:hover {
+            background-color: #666;
+        }
+        
+        .type-control { background-color: #03A9F4; box-shadow: 0 2px 0 #0288D1; } /* 藍色控制流 */
+        .type-logic { background-color: #FF9800; box-shadow: 0 2px 0 #F57C00; } /* 橘色邏輯 */
+        .type-data { background-color: #9C27B0; box-shadow: 0 2px 0 #7B1FA2; } /* 紫色資料 */
+
+
+        /* ------------------ 右側 3D 區域 ------------------ */
+        #main-content {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* ------------------ 手機版漢堡選單按鈕 ------------------ */
+        #menu-button {
+            position: fixed;
+            top: 15px;
+            left: 15px;
+            width: 40px;
+            height: 40px;
+            background-color: rgba(0, 0, 0, 0.6);
+            border-radius: 5px;
+            z-index: 1000;
+            cursor: pointer;
+            display: none; /* 預設隱藏，僅手機版顯示 */
+            align-items: center;
+            justify-content: center;
+        }
+
+        .bar {
+            width: 25px;
+            height: 3px;
+            background-color: white;
+            margin: 4px 0;
+            transition: 0.4s;
+            display: block;
+        }
+        
+        /* ------------------ 響應式佈局 (Media Queries) ------------------ */
+
+        /* 螢幕寬度小於 768px (視為手機/平板) */
+        @media (max-width: 768px) {
+            
+            /* 1. 手機版：隱藏左側欄，並將其移動到螢幕左邊 */
+            #blocky-sidebar {
+                position: fixed;
+                top: 0;
+                left: 0;
+                height: 100%;
+                z-index: 999;
+                transform: translateX(-100%); /* 初始滑出螢幕 */
+            }
+
+            /* 手機版：選單開啟時的狀態 */
+            #blocky-sidebar.open {
+                transform: translateX(0); /* 滑入螢幕 */
+            }
+
+            /* 2. 手機版：顯示漢堡按鈕 */
+            #menu-button {
+                display: flex;
+            }
+        }
+
+
+        /* ------------------ 3D 模型樣式 (繼承前一版本) ------------------ */
+        
         #phone-container {
             width: 300px;
             height: 600px;
-            /* 設置景深 */
-            perspective: 1200px; 
-            /* 使用 transform-origin 確保縮放是從中心開始 */
+            perspective: 1500px;
             transform-origin: center center;
-            touch-action: none; /* 禁用瀏覽器默認的觸控行為 */
+            cursor: grab;
         }
+        #phone-container.dragging { cursor: grabbing; }
 
-        /* ------------------ 手機機身樣式 ------------------ */
         #iphone-body {
-            width: 100%;
-            height: 100%;
-            position: relative;
-            /* 讓子元素能在 3D 空間中變換 */
+            width: 100%; height: 100%; position: relative;
             transform-style: preserve-3d; 
-            /* 初始設置：視圖角度和初始縮放 */
-            transform: translateZ(0) scale(1) rotateX(15deg) rotateY(-45deg); 
-            transition: transform 0.1s ease-out; /* 讓變換更平滑 */
+            transform: scale(1) rotateX(15deg) rotateY(-45deg); 
+            transition: transform 0.1s ease-out;
         }
 
-        /* ------------------ 3D 方形的每個面 ------------------ */
-        .face {
-            position: absolute;
-            width: 300px; /* 手機寬度 */
-            height: 600px; /* 手機高度 */
-            box-sizing: border-box;
-            border-radius: 40px; /* 模擬手機圓角 */
-            border: 5px solid #222; /* 邊框模擬手機邊緣 */
-            background-color: #ccc;
-            opacity: 0.95;
-            /* 設置薄度（手機厚度） */
-            --thickness: 10px; 
-            backface-visibility: hidden; /* 確保背面不會閃爍 */
-        }
-        
-        /* 螢幕/前面 */
-        .front {
-            background: radial-gradient(circle at 70% 30%, #444, #111);
-            transform: translateZ(var(--thickness));
-            border-color: #000;
-        }
+        /* ... (其餘 .face 樣式保持不變，為節省篇幅省略) ... */
+        .face { position: absolute; width: 300px; height: 600px; box-sizing: border-box; border-radius: 40px; border: 5px solid #222; opacity: 0.95; --thickness: 10px; backface-visibility: hidden; }
+        .front { background: radial-gradient(circle at 70% 30%, #444, #111); transform: translateZ(var(--thickness)); border-color: #000; }
+        .back { background: linear-gradient(135deg, #a7a9ac, #6c6f71); transform: rotateY(180deg) translateZ(var(--thickness)); }
+        .top { width: 300px; height: calc(2 * var(--thickness)); background-color: #444; transform: rotateX(90deg) translateZ(calc(var(--thickness) + 300px)); border-radius: 40px 40px 0 0; }
+        .bottom { width: 300px; height: calc(2 * var(--thickness)); background-color: #444; transform: rotateX(-90deg) translateZ(calc(600px - var(--thickness))); border-radius: 0 0 40px 40px; }
+        .right { width: calc(2 * var(--thickness)); height: 600px; background-color: #444; transform: rotateY(90deg) translateZ(calc(300px - var(--thickness))); border-radius: 0 40px 40px 0; }
+        .left { width: calc(2 * var(--thickness)); height: 600px; background-color: #444; transform: rotateY(-90deg) translateZ(calc(var(--thickness))); border-radius: 40px 0 0 40px; }
+        #dynamic-island { position: absolute; width: 80px; height: 30px; background: black; border-radius: 15px; top: 15px; left: 50%; transform: translateX(-50%); }
 
-        /* 背面 */
-        .back {
-            background: linear-gradient(135deg, #a7a9ac, #6c6f71); /* 模擬太空黑或銀色 */
-            transform: rotateY(180deg) translateZ(var(--thickness));
-        }
+        /* 隱藏資訊 */
+        #controls-info { display: none; }
 
-        /* 頂部 */
-        .top {
-            width: 300px;
-            height: calc(2 * var(--thickness));
-            background-color: #444;
-            transform: rotateX(90deg) translateZ(calc(var(--thickness) + 300px)); /* 300px 是高度的一半 */
-            border-radius: 40px 40px 0 0;
-        }
-
-        /* 底部 */
-        .bottom {
-            width: 300px;
-            height: calc(2 * var(--thickness));
-            background-color: #444;
-            transform: rotateX(-90deg) translateZ(calc(600px - var(--thickness)));
-            border-radius: 0 0 40px 40px;
-        }
-        
-        /* 右側 (假設厚度 20px) */
-        .right {
-            width: calc(2 * var(--thickness));
-            height: 600px;
-            background-color: #444;
-            transform: rotateY(90deg) translateZ(calc(300px - var(--thickness))); /* 300px 是寬度的一半 */
-            border-radius: 0 40px 40px 0;
-        }
-
-        /* 左側 */
-        .left {
-            width: calc(2 * var(--thickness));
-            height: 600px;
-            background-color: #444;
-            transform: rotateY(-90deg) translateZ(calc(var(--thickness)));
-            border-radius: 40px 0 0 40px;
-        }
-
-        /* 螢幕細節 */
-        #dynamic-island {
-            position: absolute;
-            width: 80px;
-            height: 30px;
-            background: black;
-            border-radius: 15px;
-            top: 15px;
-            left: 50%;
-            transform: translateX(-50%);
-        }
     </style>
 </head>
 <body>
 
-    <div id="phone-container">
-        <div id="iphone-body">
-            <div class="face front">
-                <div id="dynamic-island"></div>
+    <div id="menu-button">
+        <span class="bar"></span>
+        <span class="bar"></span>
+        <span class="bar"></span>
+    </div>
+
+    <div id="blocky-sidebar">
+        <div class="blocky-title">控制流 (Control Flow)</div>
+        <div class="blocky-item type-control">IF 條件判斷 (If Statement)</div>
+        <div class="blocky-item type-control">ELSE-IF 否則判斷 (Else-If)</div>
+        <div class="blocky-item type-control">WHILE 迴圈 (While Loop)</div>
+        <div class="blocky-item type-control">FOR 迴圈 (For Loop)</div>
+        <div class="blocky-item type-control">BREAK 跳出 (Break)</div>
+
+        <div class="blocky-title">邏輯與運算 (Logic & Ops)</div>
+        <div class="blocky-item type-logic">AND 且 (AND)</div>
+        <div class="blocky-item type-logic">OR 或 (OR)</div>
+        <div class="blocky-item type-logic">NOT 非 (NOT)</div>
+        <div class="blocky-item type-logic">運算式 (Arithmetic)</div>
+        
+        <div class="blocky-title">結構與資料 (Structure & Data)</div>
+        <div class="blocky-item type-data">STRUCT 定義/類別 (Define Class/Struct)</div>
+        <div class="blocky-item type-data">FUNCTION 函數 (Function/Method)</div>
+        <div class="blocky-item type-data">變數宣告 (Variable Declaration)</div>
+        <div class="blocky-item type-data">陣列/列表 (Array/List)</div>
+    </div>
+
+    <div id="main-content">
+        <div id="phone-container">
+            <div id="iphone-body">
+                <div class="face front">
+                    <div id="dynamic-island"></div>
+                </div>
+                <div class="face back"></div>
+                <div class="face top"></div>
+                <div class="face bottom"></div>
+                <div class="face right"></div>
+                <div class="face left"></div>
             </div>
-            <div class="face back"></div>
-            <div class="face top"></div>
-            <div class="face bottom"></div>
-            <div class="face right"></div>
-            <div class="face left"></div>
         </div>
     </div>
     
@@ -136,31 +202,22 @@
 
         const phoneBody = document.getElementById('iphone-body');
         const phoneContainer = document.getElementById('phone-container');
+        const sidebar = document.getElementById('blocky-sidebar');
+        const menuButton = document.getElementById('menu-button');
         
-        // 初始變數
+        // 初始 3D 變數 (與前一版本相同)
         let currentScale = 1;
         let rotationX = 15;
         let rotationY = -45;
+        let isDragging = false;
+        let lastMouseX = 0;
+        let lastMouseY = 0;
 
-        // 觸控追蹤變數
-        let touchPoints = []; // 儲存當前所有的觸控點
-        let lastDistance = null; // 上一次兩點距離 (用於縮放)
-        let lastAngle = null;    // 上一次兩點角度 (用於旋轉)
-        let lastTouch = null;    // 上一次單點位置 (用於單指拖曳)
+        const rotationSensitivity = 0.5;
+        const scaleStep = 0.1;
 
         // ------------------ 輔助函數 ------------------
 
-        // 計算兩點之間的距離
-        function getDistance(p1, p2) {
-            return Math.sqrt(Math.pow(p2.clientX - p1.clientX, 2) + Math.pow(p2.clientY - p1.clientY, 2));
-        }
-
-        // 計算兩點之間與 Y 軸的角度 (用於兩指旋轉模型)
-        function getAngle(p1, p2) {
-            return Math.atan2(p2.clientY - p1.clientY, p2.clientX - p1.clientX) * (180 / Math.PI);
-        }
-
-        // 應用當前變換到 3D 模型
         function updateTransform() {
             phoneBody.style.transform = `
                 scale(${currentScale}) 
@@ -168,103 +225,72 @@
                 rotateY(${rotationY}deg)
             `;
         }
-
-        // ------------------ 觸控事件處理 ------------------
-
-        phoneContainer.addEventListener('touchstart', (e) => {
-            // 阻止瀏覽器默認行為（如滾動或頁面縮放）
-            e.preventDefault(); 
-            // 儲存所有觸控點
-            touchPoints = Array.from(e.touches); 
-            lastDistance = null;
-            lastAngle = null;
-            lastTouch = null;
-
-            if (touchPoints.length === 1) {
-                // 單指：準備進行拖曳旋轉
-                lastTouch = { x: touchPoints[0].clientX, y: touchPoints[0].clientY };
-            } else if (touchPoints.length >= 2) {
-                // 兩指或多指：準備進行縮放和角度旋轉
-                lastDistance = getDistance(touchPoints[0], touchPoints[1]);
-                lastAngle = getAngle(touchPoints[0], touchPoints[1]);
-            }
+        
+        // ------------------ 1. 響應式菜單控制 ------------------
+        
+        menuButton.addEventListener('click', () => {
+            // 切換 sidebar 的 'open' 類別來控制滑入/滑出動畫
+            sidebar.classList.toggle('open');
         });
 
-        phoneContainer.addEventListener('touchmove', (e) => {
-            e.preventDefault();
-            const newTouchPoints = Array.from(e.touches);
-            
-            if (newTouchPoints.length === 1 && lastTouch) {
-                // --- 單指拖曳：旋轉模型 ---
-                const currentX = newTouchPoints[0].clientX;
-                const currentY = newTouchPoints[0].clientY;
+        // ------------------ 2. 滑鼠滾輪和拖曳 (與前一版本相同) ------------------
 
-                // 計算移動的距離
-                const deltaX = currentX - lastTouch.x;
-                const deltaY = currentY - lastTouch.y;
+        // 滑鼠按下 (開始拖曳)
+        phoneContainer.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return; 
+            isDragging = true;
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
+            phoneContainer.classList.add('dragging');
+        });
 
-                // 旋轉角度，除以係數來控制靈敏度
-                rotationY += deltaX * 0.5;
-                rotationX -= deltaY * 0.5;
-                
-                // 更新上一次的位置
-                lastTouch = { x: currentX, y: currentY };
+        // 滑鼠移動 (正在拖曳)
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
 
-            } else if (newTouchPoints.length >= 2 && lastDistance !== null) {
-                // --- 兩指：縮放與平面旋轉 ---
+            const deltaX = e.clientX - lastMouseX;
+            const deltaY = e.clientY - lastMouseY;
 
-                const newDistance = getDistance(newTouchPoints[0], newTouchPoints[1]);
-                const newAngle = getAngle(newTouchPoints[0], newTouchPoints[1]);
+            rotationY += deltaX * rotationSensitivity;
+            rotationX -= deltaY * rotationSensitivity;
 
-                // 1. 縮放 (Pinch to Zoom)
-                // 距離變化量
-                const scaleFactor = newDistance / lastDistance;
-                currentScale *= scaleFactor; 
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
 
-                // 限制縮放範圍 (例如 0.5 到 3.0)
-                currentScale = Math.min(Math.max(0.5, currentScale), 3.0);
-
-                // 2. 旋轉 (Optional: 兩指繞中心點旋轉)
-                // 角度變化量
-                const angleDelta = newAngle - lastAngle;
-                
-                // 將兩指的平面旋轉應用到 Y 軸（或 Z 軸，取決於視角）
-                // 這裡我們將它輕微地應用到 Y 軸，以實現兩指拖曳的側向旋轉
-                rotationY += angleDelta * 0.2; 
-                
-                // 更新上一次的距離和角度
-                lastDistance = newDistance;
-                lastAngle = newAngle;
-            }
-
-            // 應用變換
             updateTransform();
         });
 
-        phoneContainer.addEventListener('touchend', (e) => {
-            // 更新當前觸控點列表
-            touchPoints = Array.from(e.touches);
-            
-            // 如果所有手指都離開了，重置所有追蹤變數
-            if (touchPoints.length === 0) {
-                lastDistance = null;
-                lastAngle = null;
-                lastTouch = null;
-            } else if (touchPoints.length === 1) {
-                 // 如果只剩下一根手指，準備轉換為單指拖曳模式
-                lastTouch = { x: touchPoints[0].clientX, y: touchPoints[0].clientY };
-                lastDistance = null;
-                lastAngle = null;
-            } else if (touchPoints.length >= 2) {
-                // 兩指以上繼續
-                lastDistance = getDistance(touchPoints[0], touchPoints[1]);
-                lastAngle = getAngle(touchPoints[0], touchPoints[1]);
-                lastTouch = null;
+        // 滑鼠放開 (結束拖曳)
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+            phoneContainer.classList.remove('dragging');
+        });
+
+        // 滑鼠滾輪縮放
+        phoneContainer.addEventListener('wheel', (e) => {
+            e.preventDefault(); 
+
+            if (e.deltaY < 0) {
+                currentScale += scaleStep;
+            } else {
+                currentScale -= scaleStep;
             }
+
+            currentScale = Math.min(Math.max(0.3, currentScale), 3.0);
+
+            updateTransform();
         });
 
         // 確保初始狀態正確
         updateTransform();
+        
+        // --- 額外：處理手機版點擊 3D 區域時關閉菜單 ---
+        document.getElementById('main-content').addEventListener('click', () => {
+            // 檢查 sidebar 是否有 'open' 類別，並且當前螢幕是小螢幕
+            if (sidebar.classList.contains('open') && window.innerWidth <= 768) {
+                 sidebar.classList.remove('open');
+            }
+        });
     </script>
 </body>
 </html>
