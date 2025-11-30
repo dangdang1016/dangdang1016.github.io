@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Python 網頁編輯器 (左上角執行按鈕)</title>
+    <title>Python 網頁程式碼編輯器</title>
     
     <script src="https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js"></script>
 
@@ -20,19 +20,11 @@
             box-sizing: border-box;
         }
 
-        /* 標題和按鈕容器：**核心修正點** */
-        .header-bar {
-            display: flex;
-            /* 讓元素從左側開始排列，而不是分散 */
-            justify-content: flex-start; 
-            align-items: center;
-            gap: 20px; /* 控制標題和按鈕之間的間距 */
+        /* 按鈕容器：現在它就是最左上角的部分 */
+        .top-controls {
+            /* 讓這個容器緊貼左上角 */
+            display: flex; 
             margin-bottom: 10px;
-        }
-        
-        h2 {
-            color: #333;
-            margin: 0; /* 確保標題不佔用額外的邊距 */
         }
 
         /* 執行按鈕樣式 */
@@ -48,6 +40,7 @@
             cursor: pointer;
             border-radius: 5px;
             transition: background-color 0.3s;
+            /* 讓按鈕的邊緣與頁面邊緣保持 20px 距離 (來自 body padding) */
         }
 
         #run-button:hover:not(:disabled) {
@@ -139,8 +132,7 @@
 </head>
 <body>
 
-    <div class="header-bar">
-        <h2>🐍 Python 程式碼編輯器</h2>
+    <div class="top-controls">
         <button id="run-button" disabled>載入中...</button>
     </div>
 
@@ -148,13 +140,10 @@
         <div id="code-editor">
             <textarea id="editor-area" spellcheck="false" placeholder="# 在這裡輸入您的 Python 程式碼
 # 程式碼範例：
-def factorial(n):
-    if n == 0:
-        return 1
-    else:
-        return n * factorial(n-1)
-
-print('5! =', factorial(5))
+import math
+radius = 5
+area = math.pi * radius**2
+print(f'圓的面積: {area:.2f}')
 "></textarea>
         </div>
 
