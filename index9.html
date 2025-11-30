@@ -5,22 +5,31 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>無邊際平面與重設按鈕</title>
     <style>
-        body {
+        /* 確保 HTML 和 BODY 佔滿整個視窗空間 */
+        html, body {
+            height: 100%; 
+            width: 100%;
             margin: 0;
+            padding: 0;
             overflow: hidden; 
             background-color: #f0f0f0;
             touch-action: none; 
         }
+        
+        /* 確保 Canvas 佔滿整個 body 空間 */
         #infiniteCanvas {
             display: block;
+            height: 100%; /* 新增：讓 Canvas 高度佔滿 */
+            width: 100%;  /* 新增：讓 Canvas 寬度佔滿 */
             cursor: grab; 
         }
         #infiniteCanvas.grabbing {
             cursor: grabbing;
         }
+        
         /* 重新開始按鈕的樣式：固定在左上角，不隨拖曳移動 */
         #restartButton {
-            position: fixed; /* 關鍵：固定定位，不隨畫布捲動或拖曳 */
+            position: fixed; 
             top: 20px;
             left: 20px;
             padding: 10px 15px;
@@ -30,7 +39,7 @@
             border: none;
             border-radius: 5px;
             cursor: pointer;
-            z-index: 10; /* 確保按鈕在畫布之上 */
+            z-index: 10; 
             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
         }
         #restartButton:hover {
@@ -76,31 +85,20 @@
         
         // 國家數據 (動態生成)
         let countries = []; 
-        const MIN_AREA_SIZE = 150; // 國家區域的最小邊界長度
-        const MAX_AREA_SIZE = 300; // 國家區域的最大邊界長度
-        const WORLD_BOUNDARY = 800; // 世界座標中，國家中心點的最大絕對值
-        const MIN_DISTANCE_SQUARED = Math.pow(MIN_AREA_SIZE, 2); // 最小距離平方，用於碰撞檢測
+        const MIN_AREA_SIZE = 150; 
+        const MAX_AREA_SIZE = 300; 
+        const WORLD_BOUNDARY = 800; 
+        const MIN_DISTANCE_SQUARED = Math.pow(MIN_AREA_SIZE * 1.5, 2); // 增大距離以確保不重疊
         
         // ----------------------------------------------------
         // 幾何與生成函數
         // ----------------------------------------------------
 
-        /**
-         * 產生指定範圍內的隨機整數
-         */
         function getRandom(min, max) {
             return Math.random() * (max - min) + min;
         }
 
-        /**
-         * 產生一個國家區域的隨機曲線形狀
-         * @param {number} centerX - 中心點X座標
-         * @param {number} centerY - 中心點Y座標
-         * @param {number} size - 形狀大致的半徑/大小
-         * @returns {object} {startPoint, curves}
-         */
         function generateRandomCurveShape(centerX, centerY, size) {
-            // 簡化：使用 6 個錨點，每兩個錨點間有一段貝茲曲線
             const NUM_POINTS = 6; 
             const shapeData = {
                 startPoint: {x: 0, y: 0},
@@ -112,19 +110,14 @@
             shapeData.startPoint = {x: currentX, y: currentY};
 
             for (let i = 0; i < NUM_POINTS; i++) {
-                const angle1 = i * (Math.PI * 2 / NUM_POINTS);
-                const angle2 = (i + 0.5) * (Math.PI * 2 / NUM_POINTS);
                 const angle3 = (i + 1) * (Math.PI * 2 / NUM_POINTS);
                 
-                // 結束點 (下一個錨點)
                 const endX = centerX + size * getRandom(0.8, 1.2) * Math.cos(angle3);
                 const endY = centerY + size * getRandom(0.8, 1.2) * Math.sin(angle3);
                 
-                // 控制點 1: 在當前錨點和下一個錨點之間
                 const cp1X = currentX + (endX - currentX) * getRandom(0.2, 0.4) + size * getRandom(-0.5, 0.5);
                 const cp1Y = currentY + (endY - currentY) * getRandom(0.2, 0.4) + size * getRandom(-0.5, 0.5);
                 
-                // 控制點 2: 在下一個錨點附近
                 const cp2X = currentX + (endX - currentX) * getRandom(0.6, 0.8) + size * getRandom(-0.5, 0.5);
                 const cp2Y = currentY + (endY - currentY) * getRandom(0.6, 0.8) + size * getRandom(-0.5, 0.5);
 
@@ -138,16 +131,12 @@
                 currentY = endY;
             }
             
-            // 修正最後一個曲線的結束點，強制回到起始點閉合
             shapeData.curves[NUM_POINTS - 1][2] = shapeData.startPoint; 
 
             return shapeData;
         }
 
 
-        /**
-         * 隨機生成所有國家的數據，並確保它們不重疊
-         */
         function generateNewCountries() {
             countries = [];
             const newCountryData = [];
@@ -159,21 +148,17 @@
                 while (!safeLocationFound && attempts < 100) {
                     attempts++;
 
-                    // 1. 隨機選擇一個中心點和大小
                     const centerX = getRandom(-WORLD_BOUNDARY, WORLD_BOUNDARY);
                     const centerY = getRandom(-WORLD_BOUNDARY, WORLD_BOUNDARY);
                     const size = getRandom(MIN_AREA_SIZE, MAX_AREA_SIZE); 
                     
                     let overlaps = false;
                     
-                    // 2. 簡化碰撞檢測：檢查中心點距離是否足夠遠
                     for (const existingCountry of newCountryData) {
                         const dx = centerX - existingCountry.center.x;
                         const dy = centerY - existingCountry.center.y;
                         const distanceSquared = dx * dx + dy * dy;
                         
-                        // 檢查距離是否小於最小允許距離（兩個國家最大半徑之和的平方）
-                        // 這裡使用簡化半徑 MIN_AREA_SIZE 確保它們不會太靠近
                         if (distanceSquared < MIN_DISTANCE_SQUARED) {
                             overlaps = true;
                             break;
@@ -181,15 +166,13 @@
                     }
                     
                     if (!overlaps) {
-                        // 3. 生成形狀
-                        const shape = generateRandomCurveShape(centerX, centerY, size * 0.5); // size * 0.5 作為半徑
+                        const shape = generateRandomCurveShape(centerX, centerY, size * 0.5); 
 
                         newCountryData.push({
                             name: INITIAL_NAMES[i],
                             color: INITIAL_COLORS[i],
                             center: {x: centerX, y: centerY},
                             ...shape,
-                            // size 參數用於輔助碰撞檢測
                             size: size 
                         });
                         safeLocationFound = true;
@@ -204,27 +187,29 @@
         // 初始化與事件監聽
         // ----------------------------------------------------
 
-        // 按鈕點擊事件：重新生成國家
-        restartButton.addEventListener('click', () => {
-            generateNewCountries();
-        });
-        
-        // 確保初始載入時就有三個國家
-        generateNewCountries(); 
-
-        // 調整畫布大小以填滿視窗
+        // 調整畫布大小以填滿視窗 - 修正點：必須同時設置畫布的 pixel 寬高
         function resizeCanvas() {
+            // 使用 window.innerWidth/Height 設置 Canvas 的實際繪圖大小
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
             draw();
         }
         window.addEventListener('resize', resizeCanvas);
-        // 初始呼叫 resizeCanvas 已包含在 generateNewCountries 之後，這裡不再重複。
+        
+        restartButton.addEventListener('click', () => {
+            // 點擊重新開始時，將視圖重置到世界座標原點
+            panX = 0;
+            panY = 0;
+            scale = 1.0;
+            generateNewCountries();
+        });
+        
+        resizeCanvas(); // 初始呼叫，設定正確的畫布尺寸
+        generateNewCountries(); // 確保初始載入時就有三個國家
 
         
-        // ... (以下互動邏輯與前次版本完全相同) ...
         // ----------------------------------------------------
-        // 互動邏輯 - 抽象化
+        // 互動邏輯
         // ----------------------------------------------------
         
         function getDistance(touch1, touch2) {
