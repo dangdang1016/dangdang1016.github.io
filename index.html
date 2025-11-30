@@ -136,7 +136,7 @@
 
         /* ------------------ 4. 右下角編輯器切換按鈕 (手機版/電腦版共用) ------------------ */
         #editor-switch-btn {
-            /* 修正: 使用固定定位 (fixed) 確保按鈕永遠相對於視窗 (viewport) 定位 */
+            /* 使用固定定位 (fixed) 確保按鈕永遠相對於視窗 (viewport) 定位 */
             position: fixed; 
             bottom: 20px;
             right: 20px;
@@ -585,8 +585,8 @@
             const clientX = isTouch ? e.touches[0].clientX : e.clientX;
             const clientY = isTouch ? e.touches[0].clientY : e.clientY;
             
-            // 如果點擊目標是互動元素 (按鈕, 選單, 漢堡按鈕, 編輯器切換按鈕)，則不啟動拖曳
-            if (e.target.closest('#editor-controls button') || e.target.closest('#context-menu li') || e.target.closest('.hamburger-btn') || e.target.closest('#editor-switch-btn')) {
+            // 【關鍵修正】如果點擊目標在 Blocky Panel 或其他互動元素內，則不啟動畫布拖曳
+            if (e.target.closest('#blocky-panel') || e.target.closest('#editor-controls button') || e.target.closest('#context-menu li') || e.target.closest('.hamburger-btn') || e.target.closest('#editor-switch-btn')) {
                 return; 
             }
             
