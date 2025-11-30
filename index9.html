@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>無邊際平面與不規則多國標記</title>
+    <title>無邊際平面與不規則曲線標記</title>
     <style>
         body {
             margin: 0;
             overflow: hidden; 
             background-color: #f0f0f0;
-            touch-action: none; /* 禁用瀏覽器預設的觸控行為，讓 Canvas 完全接管 */
+            touch-action: none; /* 禁用瀏覽器預設的觸控行為 */
         }
         #infiniteCanvas {
             display: block;
@@ -47,43 +47,42 @@
         // 網格設定
         const BASE_GRID_SIZE = 50; 
         
-        // 國家標記數據 (使用頂點定義不規則多邊形，座標為世界座標系)
+        // 國家標記數據 (使用三次貝茲曲線定義平滑形狀)
+        // shape 陣列中的每個元素定義了一段曲線：[控制點1, 控制點2, 結束點]
         const countries = [
             { 
                 name: "國家 A (藍)", 
-                color: "#007BFF", // 藍色
-                center: {x: -150, y: -100}, // 文字中心點
-                // 頂點座標 (相對於世界座標原點)
-                shape: [
-                    {x: -250, y: -180},
-                    {x: -100, y: -200},
-                    {x: -50, y: -80},
-                    {x: -200, y: 0},
-                    {x: -300, y: -50}
+                color: "#007BFF", 
+                center: {x: -100, y: -100}, // 文字中心點
+                // 曲線段的定義：每段從上一個結束點開始
+                // 格式: [{cp1x, cp1y}, {cp2x, cp2y}, {endX, endY}]
+                startPoint: {x: -250, y: -100}, // 曲線起始點
+                curves: [
+                    [{x: -200, y: -250}, {x: -50, y: -250}, {x: 0, y: -100}],
+                    [{x: 50, y: 50}, {x: -100, y: 150}, {x: -200, y: 50}],
+                    [{x: -300, y: 0}, {x: -300, y: -50}, {x: -250, y: -100}] // 閉合回起始點
                 ]
             },
             { 
                 name: "國家 B (紅)", 
-                color: "#DC3545", // 紅色
-                center: {x: 50, y: 50},
-                shape: [
-                    {x: 0, y: 0},
-                    {x: 200, y: 50},
-                    {x: 100, y: 200},
-                    {x: 0, y: 150},
-                    {x: -50, y: 100}
+                color: "#DC3545", 
+                center: {x: 100, y: 100},
+                startPoint: {x: 50, y: 0},
+                curves: [
+                    [{x: 200, y: 0}, {x: 250, y: 50}, {x: 200, y: 150}],
+                    [{x: 150, y: 250}, {x: 0, y: 200}, {x: 0, y: 100}],
+                    [{x: -50, y: 50}, {x: 0, y: 0}, {x: 50, y: 0}] 
                 ]
             },      
             { 
                 name: "國家 C (黃)", 
-                color: "#FFC107", // 黃色
-                center: {x: -200, y: 200},
-                shape: [
-                    {x: -300, y: 300},
-                    {x: -150, y: 350},
-                    {x: -50, y: 250},
-                    {x: -200, y: 100},
-                    {x: -350, y: 150}
+                color: "#FFC107", 
+                center: {x: -200, y: 300},
+                startPoint: {x: -300, y: 200},
+                curves: [
+                    [{x: -150, y: 350}, {x: -50, y: 350}, {x: 0, y: 300}],
+                    [{x: 50, y: 200}, {x: -50, y: 100}, {x: -200, y: 150}],
+                    [{x: -350, y: 200}, {x: -350, y: 250}, {x: -300, y: 200}] 
                 ]
             }     
         ];
@@ -177,49 +176,50 @@
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.save();
 
-            // 應用變換矩陣：中心平移 -> 縮放 -> 世界平移
+            // 應用變換矩陣
             ctx.translate(canvas.width / 2, canvas.height / 2);
             ctx.scale(scale, scale);
             ctx.translate(panX, panY);
 
             drawGrid();
-            drawCountries(); // <-- 繪製不規則國家標記
+            drawCountries(); // <-- 繪製不規則曲線國家標記
 
             ctx.restore();
         }
 
         /**
-         * 繪製不規則多邊形國家
+         * 繪製不規則曲線形狀的國家
          */
         function drawCountries() {
             countries.forEach(country => {
-                const shape = country.shape;
-                if (shape.length < 2) return;
-
                 ctx.fillStyle = country.color;
                 ctx.beginPath();
                 
-                // 1. 移動到第一個點
-                ctx.moveTo(shape[0].x, shape[0].y);
+                // 1. 移動到曲線起始點
+                ctx.moveTo(country.startPoint.x, country.startPoint.y);
                 
-                // 2. 連接到後續所有點
-                for (let i = 1; i < shape.length; i++) {
-                    ctx.lineTo(shape[i].x, shape[i].y);
-                }
+                // 2. 依序繪製三次貝茲曲線段
+                country.curves.forEach(curve => {
+                    const cp1 = curve[0];
+                    const cp2 = curve[1];
+                    const end = curve[2];
+                    
+                    // ctx.bezierCurveTo(控制點1x, 控制點1y, 控制點2x, 控制點2y, 結束點x, 結束點y)
+                    ctx.bezierCurveTo(cp1.x, cp1.y, cp2.x, cp2.y, end.x, end.y);
+                });
                 
                 // 3. 閉合路徑並填充
                 ctx.closePath();
                 ctx.fill();
                 
-                // 繪製邊框 (可選，讓形狀更清晰)
+                // 繪製邊框
                 ctx.strokeStyle = '#333333';
-                ctx.lineWidth = 3 / scale; // 線寬隨縮放調整
+                ctx.lineWidth = 3 / scale; 
                 ctx.stroke();
 
                 
                 // 繪製國家名稱
                 ctx.font = `${20 / scale}px Arial`;
-                // 根據背景色選擇文字顏色
                 ctx.fillStyle = (country.color === "#FFC107") ? "#000000" : "#ffffff"; 
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
