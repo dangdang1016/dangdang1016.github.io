@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Python 網頁編輯器 (帶執行按鈕)</title>
+    <title>Python 網頁編輯器 (左上角執行按鈕)</title>
     
     <script src="https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js"></script>
 
@@ -20,18 +20,19 @@
             box-sizing: border-box;
         }
 
-        /* 標題和按鈕容器 - **修正重點** */
+        /* 標題和按鈕容器：**核心修正點** */
         .header-bar {
             display: flex;
-            /* 移除 justify-content: space-between; */
+            /* 讓元素從左側開始排列，而不是分散 */
+            justify-content: flex-start; 
             align-items: center;
-            gap: 20px; /* 增加標題和按鈕之間的間距 */
+            gap: 20px; /* 控制標題和按鈕之間的間距 */
             margin-bottom: 10px;
         }
         
         h2 {
             color: #333;
-            margin: 0; /* 移除預設 margin，讓 flexbox 更好地控制間距 */
+            margin: 0; /* 確保標題不佔用額外的邊距 */
         }
 
         /* 執行按鈕樣式 */
@@ -146,11 +147,15 @@
     <div class="main-container">
         <div id="code-editor">
             <textarea id="editor-area" spellcheck="false" placeholder="# 在這裡輸入您的 Python 程式碼
-# 例如：
-def greet(name):
-    print(f'Hello, {name}!')
+# 程式碼範例：
+def factorial(n):
+    if n == 0:
+        return 1
+    else:
+        return n * factorial(n-1)
 
-greet('Pyodide')"></textarea>
+print('5! =', factorial(5))
+"></textarea>
         </div>
 
         <div id="output-container">
@@ -209,7 +214,6 @@ greet('Pyodide')"></textarea>
             outputDiv.textContent += s;
         }
         
-        // 必須將 js_output 放在全局 scope，讓 Pyodide 能夠存取
         window.js_output = js_output;
 
 
@@ -227,12 +231,10 @@ greet('Pyodide')"></textarea>
             statusBar.textContent = '正在執行程式碼...';
 
             try {
-                // 使用 runPythonAsync 執行程式碼
                 await pyodideInstance.runPythonAsync(code);
                 statusBar.textContent = '✅ 程式碼執行完畢。';
                 
             } catch (error) {
-                // 捕獲 Python 執行時發生的錯誤
                 outputDiv.textContent += `\n--- 執行錯誤 ---\n${error}`;
                 statusBar.textContent = '❌ 程式碼執行失敗。';
 
@@ -248,7 +250,7 @@ greet('Pyodide')"></textarea>
         // 初始化時載入 Pyodide
         loadPyodide();
         
-        // 5. Tab 鍵處理 (保持編輯器體驗)
+        // 5. Tab 鍵處理
         editorArea.addEventListener('keydown', function(e) {
             if (e.key === 'Tab') {
                 e.preventDefault();
