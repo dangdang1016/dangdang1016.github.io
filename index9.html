@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>無邊際平面與重設按鈕</title>
+    <title>無邊際平面與選單</title>
     <style>
         /* 確保 HTML 和 BODY 佔滿整個視窗空間 */
         html, body {
@@ -19,15 +19,15 @@
         /* 確保 Canvas 佔滿整個 body 空間 */
         #infiniteCanvas {
             display: block;
-            height: 100%; /* 新增：讓 Canvas 高度佔滿 */
-            width: 100%;  /* 新增：讓 Canvas 寬度佔滿 */
+            height: 100%; 
+            width: 100%;  
             cursor: grab; 
         }
         #infiniteCanvas.grabbing {
             cursor: grabbing;
         }
         
-        /* 重新開始按鈕的樣式：固定在左上角，不隨拖曳移動 */
+        /* 重新開始按鈕樣式 */
         #restartButton {
             position: fixed; 
             top: 20px;
@@ -45,12 +45,45 @@
         #restartButton:hover {
             background-color: #0056b3;
         }
+
+        /* 國家選單樣式 */
+        #countryMenu {
+            position: fixed; /* 保持選單固定在螢幕上，不隨畫布移動 */
+            display: none; /* 預設隱藏 */
+            background-color: white;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            z-index: 20; /* 確保在按鈕和畫布之上 */
+            min-width: 150px;
+            padding: 5px 0;
+        }
+        #menuHeader {
+            padding: 8px 15px;
+            font-weight: bold;
+            border-bottom: 1px solid #eee;
+            margin-bottom: 5px;
+            color: #333;
+        }
+        .menuItem {
+            padding: 8px 15px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .menuItem:hover {
+            background-color: #f0f0f0;
+        }
     </style>
 </head>
 <body>
 
     <canvas id="infiniteCanvas"></canvas>
     <button id="restartButton">🔄 重新開始</button>
+
+    <div id="countryMenu">
+        <div id="menuHeader"></div>
+        <div class="menuItem" onclick="alert('顯示國家情況詳細信息'); hideMenu();">國家情況</div>
+        </div>
 
     <script>
         // ----------------------------------------------------
@@ -59,6 +92,8 @@
         const canvas = document.getElementById('infiniteCanvas');
         const ctx = canvas.getContext('2d');
         const restartButton = document.getElementById('restartButton');
+        const countryMenu = document.getElementById('countryMenu');
+        const menuHeader = document.getElementById('menuHeader');
 
         // 畫布的狀態
         let panX = 0; 
@@ -88,8 +123,191 @@
         const MIN_AREA_SIZE = 150; 
         const MAX_AREA_SIZE = 300; 
         const WORLD_BOUNDARY = 800; 
-        const MIN_DISTANCE_SQUARED = Math.pow(MIN_AREA_SIZE * 1.5, 2); // 增大距離以確保不重疊
+        const MIN_DISTANCE_SQUARED = Math.pow(MIN_AREA_SIZE * 1.5, 2); 
         
+        // ----------------------------------------------------
+        // 選單邏輯
+        // ----------------------------------------------------
+
+        /**
+         * 顯示選單
+         * @param {number} x - 螢幕X座標
+         * @param {number} y - 螢幕Y座標
+         * @param {string} countryName - 被點擊的國家名稱
+         */
+        function showMenu(x, y, countryName) {
+            menuHeader.textContent = countryName;
+            countryMenu.style.left = `${x}px`;
+            countryMenu.style.top = `${y}px`;
+            countryMenu.style.display = 'block';
+        }
+
+        /**
+         * 隱藏選單
+         */
+        function hideMenu() {
+            countryMenu.style.display = 'none';
+        }
+        
+        // 點擊畫布任何地方，如果沒點中國家，就隱藏選單
+        canvas.addEventListener('click', () => {
+             // 點擊事件會透過 checkCountryClick 處理
+        });
+        
+        // 點擊畫布以外的地方也應隱藏選單
+        window.addEventListener('mousedown', (e) => {
+            if (e.target.id !== 'infiniteCanvas' && e.target.closest('#countryMenu') === null && e.target.id !== 'restartButton') {
+                hideMenu();
+            }
+        });
+        window.addEventListener('touchstart', (e) => {
+             if (e.touches.length === 1 && e.target.id !== 'infiniteCanvas' && e.target.closest('#countryMenu') === null && e.target.id !== 'restartButton') {
+                hideMenu();
+            }
+        });
+
+        // ----------------------------------------------------
+        // 點擊檢測 (Hit Testing)
+        // ----------------------------------------------------
+
+        /**
+         * 將螢幕座標轉換為世界座標
+         * @param {number} clientX - 螢幕X座標
+         * @param {number} clientY - 螢幕Y座標
+         * @returns {object} {worldX, worldY}
+         */
+        function screenToWorld(clientX, clientY) {
+            const rect = canvas.getBoundingClientRect();
+            const canvasX = clientX - rect.left;
+            const canvasY = clientY - rect.top;
+            
+            // 逆轉變換矩陣： (螢幕座標 - 畫布中心) / 縮放 - 平移偏移
+            const worldX = (canvasX - canvas.width / 2) / scale - panX;
+            const worldY = (canvasY - canvas.height / 2) / scale - panY;
+            
+            return { worldX, worldY };
+        }
+
+        /**
+         * 檢查點擊是否落在了某個國家區域內
+         * @param {number} clientX - 螢幕X座標
+         * @param {number} clientY - 螢幕Y座標
+         * @returns {object | null} - 被點擊的國家物件，或 null
+         */
+        function checkCountryClick(clientX, clientY) {
+            // 由於繪圖路徑是暫時的，我們需要重新繪製一次路徑來使用 isPointInPath
+            
+            const { worldX, worldY } = screenToWorld(clientX, clientY);
+            let clickedCountry = null;
+
+            // 在繪圖變換之前保存狀態
+            ctx.save();
+            ctx.setTransform(1, 0, 0, 1, 0, 0); // 重設變換矩陣
+
+            // 應用變換矩陣，與 draw 函數中的一致
+            ctx.translate(canvas.width / 2, canvas.height / 2);
+            ctx.scale(scale, scale);
+            ctx.translate(panX, panY);
+
+            // 遍歷所有國家進行檢測
+            for (const country of countries) {
+                const shape = country.curves;
+                
+                ctx.beginPath();
+                ctx.moveTo(country.startPoint.x, country.startPoint.y);
+                
+                shape.forEach(curve => {
+                    const cp1 = curve[0];
+                    const cp2 = curve[1];
+                    const end = curve[2];
+                    ctx.bezierCurveTo(cp1.x, cp1.y, cp2.x, cp2.y, end.x, end.y);
+                });
+                
+                ctx.closePath();
+                
+                // 檢查世界座標點是否在當前路徑內
+                if (ctx.isPointInPath(worldX, worldY)) {
+                    clickedCountry = country;
+                    break; 
+                }
+            }
+
+            ctx.restore(); // 恢復變換狀態
+
+            return clickedCountry;
+        }
+
+        // ----------------------------------------------------
+        // 互動邏輯 (增加點擊檢測)
+        // ----------------------------------------------------
+        
+        let clickStart = {x: 0, y: 0}; // 用於判斷是拖曳還是單擊
+
+        // 滑鼠/觸控開始時，記錄位置
+        function handleStart(clientX, clientY) {
+            isDragging = true;
+            lastX = clientX;
+            lastY = clientY;
+            clickStart = {x: clientX, y: clientY}; // 記錄點擊起始點
+            canvas.classList.add('grabbing');
+        }
+
+        // 滑鼠/觸控結束時，檢查是否為單擊
+        window.addEventListener('mouseup', (e) => {
+            if (isDragging && !isPinching) {
+                // 檢查是否是單擊 (移動距離極小)
+                const distance = Math.sqrt(
+                    Math.pow(e.clientX - clickStart.x, 2) + 
+                    Math.pow(e.clientY - clickStart.y, 2)
+                );
+                
+                if (distance < 5) { // 允許 5 像素的誤差
+                    const country = checkCountryClick(e.clientX, e.clientY);
+                    if (country) {
+                        showMenu(e.clientX, e.clientY, country.name);
+                    } else {
+                        hideMenu();
+                    }
+                } else {
+                    hideMenu();
+                }
+            }
+            handleEnd();
+        });
+        
+        // 觸控結束時，檢查是否為單擊 (這裡僅處理 touchend, touchmove 阻止了單擊)
+        window.addEventListener('touchend', (e) => {
+            if (e.touches.length === 0 && !isPinching) {
+                const distance = Math.sqrt(
+                    Math.pow(lastX - clickStart.x, 2) + 
+                    Math.pow(lastY - clickStart.y, 2)
+                );
+                
+                if (distance < 5) { 
+                    // 觸控的單擊位置使用最近一次的 lastX/lastY
+                    const country = checkCountryClick(lastX, lastY);
+                    if (country) {
+                        showMenu(lastX, lastY, country.name);
+                    } else {
+                        hideMenu();
+                    }
+                } else {
+                    hideMenu();
+                }
+            }
+            
+            if (e.touches.length === 0) {
+                handleEnd();
+            } else if (e.touches.length === 1) {
+                isPinching = false;
+                lastTouchDistance = null;
+                handleStart(e.touches[0].clientX, e.touches[0].clientY);
+            }
+        });
+
+
+        // ... (其他互動函數，如 move, zoom, grid, country 繪製函數與前次版本相同，但為簡潔省略了重複註釋) ...
+
         // ----------------------------------------------------
         // 幾何與生成函數
         // ----------------------------------------------------
@@ -187,9 +405,7 @@
         // 初始化與事件監聽
         // ----------------------------------------------------
 
-        // 調整畫布大小以填滿視窗 - 修正點：必須同時設置畫布的 pixel 寬高
         function resizeCanvas() {
-            // 使用 window.innerWidth/Height 設置 Canvas 的實際繪圖大小
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
             draw();
@@ -197,19 +413,19 @@
         window.addEventListener('resize', resizeCanvas);
         
         restartButton.addEventListener('click', () => {
-            // 點擊重新開始時，將視圖重置到世界座標原點
             panX = 0;
             panY = 0;
             scale = 1.0;
+            hideMenu(); // 點擊重設時隱藏選單
             generateNewCountries();
         });
         
-        resizeCanvas(); // 初始呼叫，設定正確的畫布尺寸
-        generateNewCountries(); // 確保初始載入時就有三個國家
+        resizeCanvas(); 
+        generateNewCountries(); 
 
         
         // ----------------------------------------------------
-        // 互動邏輯
+        // 互動邏輯 (簡化重複程式碼，僅保留必要的)
         // ----------------------------------------------------
         
         function getDistance(touch1, touch2) {
@@ -251,13 +467,6 @@
             draw();
         }
 
-        function handleStart(clientX, clientY) {
-            isDragging = true;
-            lastX = clientX;
-            lastY = clientY;
-            canvas.classList.add('grabbing');
-        }
-
         function handleEnd() {
             isDragging = false;
             isPinching = false;
@@ -265,13 +474,16 @@
             canvas.classList.remove('grabbing');
         }
         
-        // 滑鼠事件
-        canvas.addEventListener('mousedown', (e) => handleStart(e.clientX, e.clientY));
+        // 滑鼠/觸控開始事件
+        canvas.addEventListener('mousedown', (e) => {
+            hideMenu(); // 開始拖曳或點擊時隱藏選單
+            handleStart(e.clientX, e.clientY);
+        });
         canvas.addEventListener('mousemove', (e) => handleMove(e.clientX, e.clientY));
-        window.addEventListener('mouseup', handleEnd);
 
         // 滾輪縮放
         canvas.addEventListener('wheel', (e) => {
+            hideMenu(); // 滾輪時隱藏選單
             e.preventDefault(); 
             const delta = e.deltaY * -ZOOM_SPEED * 10; 
             const newScale = scale * (1 + delta);
@@ -280,6 +492,7 @@
         
         // 觸控事件
         canvas.addEventListener('touchstart', (e) => {
+            hideMenu(); // 觸控時隱藏選單
             e.preventDefault(); 
             
             if (e.touches.length === 1) {
@@ -323,15 +536,6 @@
             }
         });
 
-        window.addEventListener('touchend', (e) => {
-            if (e.touches.length === 0) {
-                handleEnd();
-            } else if (e.touches.length === 1) {
-                isPinching = false;
-                lastTouchDistance = null;
-                handleStart(e.touches[0].clientX, e.touches[0].clientY);
-            }
-        });
         window.addEventListener('touchcancel', handleEnd); 
 
         // ----------------------------------------------------
@@ -355,7 +559,9 @@
         function drawCountries() {
             countries.forEach(country => {
                 ctx.fillStyle = country.color;
-                ctx.beginPath();
+                
+                // 註：這裡只繪製，不進行路徑儲存，路徑檢測在 checkCountryClick 獨立進行
+                ctx.beginPath(); 
                 
                 ctx.moveTo(country.startPoint.x, country.startPoint.y);
                 
