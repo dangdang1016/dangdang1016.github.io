@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>簡易網頁程式碼編輯器</title>
+    <style>
+        /* 1. 編輯器容器樣式 */
+        body {
+            font-family: sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f0f0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            box-sizing: border-box;
+        }
+
+        h2 {
+            color: #333;
+            margin-top: 0;
+        }
+
+        /* 2. 核心編輯區樣式 */
+        #code-editor {
+            flex-grow: 1; /* 讓編輯器佔據剩餘空間 */
+            position: relative; /* 為了之後可能需要的定位做準備 */
+            margin-bottom: 10px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        /* 3. 程式碼輸入區樣式 */
+        #editor-area {
+            width: 100%;
+            height: 100%;
+            padding: 15px;
+            box-sizing: border-box;
+            border: none;
+            outline: none; /* 移除點擊時的藍色邊框 */
+            
+            /* 程式碼字體設定 */
+            font-family: 'Consolas', 'Monaco', 'Lucida Console', monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            
+            /* 顏色主題：深色背景，淺色文字 */
+            background-color: #282c34; /* 深藍灰色 */
+            color: #abb2bf; /* 淺灰色/白色 */
+            
+            /* 滾動條樣式 */
+            overflow: auto;
+            resize: none; /* 禁止用戶調整大小 */
+            
+            /* 不顯示行數，只需確保沒有額外的行數元素 */
+        }
+        
+        /* 4. 底部資訊/操作區 */
+        .info-bar {
+            padding: 10px 0;
+            color: #666;
+            font-size: 12px;
+            text-align: right;
+        }
+        
+        /* 5. 簡單的語法高亮 (僅為演示，真正的高亮需要更複雜的JS) */
+        /* 因為是基本的 textarea，所以無法在輸入時進行即時語法高亮。
+           如果需要即時高亮，需要使用 `contenteditable` div 或專業函式庫如 CodeMirror/Monaco Editor。
+           此處僅為一個基本的文字輸入區。
+        */
+
+    </style>
+</head>
+<body>
+
+    <h2>📝 簡易網頁程式碼編輯器</h2>
+
+    <div id="code-editor">
+        <textarea id="editor-area" spellcheck="false" placeholder="在這裡輸入您的程式碼..."></textarea>
+    </div>
+
+    <div class="info-bar">
+        基於 HTML, CSS, JavaScript (無 Node.js / 無行數顯示)
+    </div>
+
+    <script>
+        // 簡單的 JavaScript 邏輯 (可選)
+        const editorArea = document.getElementById('editor-area');
+
+        // 1. 在按下 Tab 鍵時插入四個空格 (模擬程式碼編輯器的 Tab 行為)
+        editorArea.addEventListener('keydown', function(e) {
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                const start = this.selectionStart;
+                const end = this.selectionEnd;
+
+                // 插入四個空格
+                this.value = this.value.substring(0, start) + '    ' + this.value.substring(end);
+
+                // 將光標移動到新插入的空格後面
+                this.selectionStart = this.selectionEnd = start + 4;
+            }
+        });
+
+        // 2. 程式碼保存/讀取 (如果需要，您可以在這裡添加)
+        // 由於沒有後端，您只能將內容保存在瀏覽器的 localStorage 中。
+        
+        // 範例：加載上次保存的內容
+        window.onload = function() {
+            const savedCode = localStorage.getItem('simpleCodeEditorContent');
+            if (savedCode) {
+                editorArea.value = savedCode;
+            }
+        }
+        
+        // 範例：自動保存內容到本地儲存
+        editorArea.addEventListener('input', function() {
+            localStorage.setItem('simpleCodeEditorContent', this.value);
+        });
+
+    </script>
+
+</body>
+</html>
