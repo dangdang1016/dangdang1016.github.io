@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>支援雙指縮放的無邊際平面</title>
+    <title>無邊際平面與重設按鈕</title>
     <style>
         body {
             margin: 0;
             overflow: hidden; 
             background-color: #f0f0f0;
-            touch-action: none; /* 禁用瀏覽器預設的觸控行為 */
+            touch-action: none; 
         }
         #infiniteCanvas {
             display: block;
@@ -18,11 +18,30 @@
         #infiniteCanvas.grabbing {
             cursor: grabbing;
         }
+        /* 重新開始按鈕的樣式：固定在左上角，不隨拖曳移動 */
+        #restartButton {
+            position: fixed; /* 關鍵：固定定位，不隨畫布捲動或拖曳 */
+            top: 20px;
+            left: 20px;
+            padding: 10px 15px;
+            font-size: 16px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            z-index: 10; /* 確保按鈕在畫布之上 */
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
+        #restartButton:hover {
+            background-color: #0056b3;
+        }
     </style>
 </head>
 <body>
 
     <canvas id="infiniteCanvas"></canvas>
+    <button id="restartButton">🔄 重新開始</button>
 
     <script>
         // ----------------------------------------------------
@@ -30,6 +49,7 @@
         // ----------------------------------------------------
         const canvas = document.getElementById('infiniteCanvas');
         const ctx = canvas.getContext('2d');
+        const restartButton = document.getElementById('restartButton');
 
         // 畫布的狀態
         let panX = 0; 
@@ -46,100 +66,196 @@
         
         // 觸控專用變數
         let isPinching = false;
-        let lastTouchDistance = null; // 上次兩指之間的距離
-        let touchCenter = { x: 0, y: 0 }; // 兩指的中心點
+        let lastTouchDistance = null; 
+        let touchCenter = { x: 0, y: 0 }; 
 
         // 網格設定
         const BASE_GRID_SIZE = 50; 
+        const INITIAL_COLORS = ["#007BFF", "#DC3545", "#FFC107"];
+        const INITIAL_NAMES = ["國家 A", "國家 B", "國家 C"];
         
-        // 國家標記數據 (使用三次貝茲曲線定義平滑形狀)
-        const countries = [
-            { 
-                name: "國家 A (藍)", 
-                color: "#007BFF", 
-                center: {x: -100, y: -100}, 
-                startPoint: {x: -250, y: -100}, 
-                curves: [
-                    [{x: -200, y: -250}, {x: -50, y: -250}, {x: 0, y: -100}],
-                    [{x: 50, y: 50}, {x: -100, y: 150}, {x: -200, y: 50}],
-                    [{x: -300, y: 0}, {x: -300, y: -50}, {x: -250, y: -100}] 
-                ]
-            },
-            { 
-                name: "國家 B (紅)", 
-                color: "#DC3545", 
-                center: {x: 100, y: 100},
-                startPoint: {x: 50, y: 0},
-                curves: [
-                    [{x: 200, y: 0}, {x: 250, y: 50}, {x: 200, y: 150}],
-                    [{x: 150, y: 250}, {x: 0, y: 200}, {x: 0, y: 100}],
-                    [{x: -50, y: 50}, {x: 0, y: 0}, {x: 50, y: 0}] 
-                ]
-            },      
-            { 
-                name: "國家 C (黃)", 
-                color: "#FFC107", 
-                center: {x: -200, y: 300},
-                startPoint: {x: -300, y: 200},
-                curves: [
-                    [{x: -150, y: 350}, {x: -50, y: 350}, {x: 0, y: 300}],
-                    [{x: 50, y: 200}, {x: -50, y: 100}, {x: -200, y: 150}],
-                    [{x: -350, y: 200}, {x: -350, y: 250}, {x: -300, y: 200}] 
-                ]
-            }     
-        ];
-
+        // 國家數據 (動態生成)
+        let countries = []; 
+        const MIN_AREA_SIZE = 150; // 國家區域的最小邊界長度
+        const MAX_AREA_SIZE = 300; // 國家區域的最大邊界長度
+        const WORLD_BOUNDARY = 800; // 世界座標中，國家中心點的最大絕對值
+        const MIN_DISTANCE_SQUARED = Math.pow(MIN_AREA_SIZE, 2); // 最小距離平方，用於碰撞檢測
+        
         // ----------------------------------------------------
-        // 初始化與公用函數
+        // 幾何與生成函數
         // ----------------------------------------------------
 
+        /**
+         * 產生指定範圍內的隨機整數
+         */
+        function getRandom(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        /**
+         * 產生一個國家區域的隨機曲線形狀
+         * @param {number} centerX - 中心點X座標
+         * @param {number} centerY - 中心點Y座標
+         * @param {number} size - 形狀大致的半徑/大小
+         * @returns {object} {startPoint, curves}
+         */
+        function generateRandomCurveShape(centerX, centerY, size) {
+            // 簡化：使用 6 個錨點，每兩個錨點間有一段貝茲曲線
+            const NUM_POINTS = 6; 
+            const shapeData = {
+                startPoint: {x: 0, y: 0},
+                curves: []
+            };
+            
+            let currentX = centerX + size * Math.cos(0);
+            let currentY = centerY + size * Math.sin(0);
+            shapeData.startPoint = {x: currentX, y: currentY};
+
+            for (let i = 0; i < NUM_POINTS; i++) {
+                const angle1 = i * (Math.PI * 2 / NUM_POINTS);
+                const angle2 = (i + 0.5) * (Math.PI * 2 / NUM_POINTS);
+                const angle3 = (i + 1) * (Math.PI * 2 / NUM_POINTS);
+                
+                // 結束點 (下一個錨點)
+                const endX = centerX + size * getRandom(0.8, 1.2) * Math.cos(angle3);
+                const endY = centerY + size * getRandom(0.8, 1.2) * Math.sin(angle3);
+                
+                // 控制點 1: 在當前錨點和下一個錨點之間
+                const cp1X = currentX + (endX - currentX) * getRandom(0.2, 0.4) + size * getRandom(-0.5, 0.5);
+                const cp1Y = currentY + (endY - currentY) * getRandom(0.2, 0.4) + size * getRandom(-0.5, 0.5);
+                
+                // 控制點 2: 在下一個錨點附近
+                const cp2X = currentX + (endX - currentX) * getRandom(0.6, 0.8) + size * getRandom(-0.5, 0.5);
+                const cp2Y = currentY + (endY - currentY) * getRandom(0.6, 0.8) + size * getRandom(-0.5, 0.5);
+
+                shapeData.curves.push([
+                    {x: cp1X, y: cp1Y}, 
+                    {x: cp2X, y: cp2Y}, 
+                    {x: endX, y: endY}
+                ]);
+                
+                currentX = endX;
+                currentY = endY;
+            }
+            
+            // 修正最後一個曲線的結束點，強制回到起始點閉合
+            shapeData.curves[NUM_POINTS - 1][2] = shapeData.startPoint; 
+
+            return shapeData;
+        }
+
+
+        /**
+         * 隨機生成所有國家的數據，並確保它們不重疊
+         */
+        function generateNewCountries() {
+            countries = [];
+            const newCountryData = [];
+            
+            for (let i = 0; i < INITIAL_COLORS.length; i++) {
+                let safeLocationFound = false;
+                let attempts = 0;
+                
+                while (!safeLocationFound && attempts < 100) {
+                    attempts++;
+
+                    // 1. 隨機選擇一個中心點和大小
+                    const centerX = getRandom(-WORLD_BOUNDARY, WORLD_BOUNDARY);
+                    const centerY = getRandom(-WORLD_BOUNDARY, WORLD_BOUNDARY);
+                    const size = getRandom(MIN_AREA_SIZE, MAX_AREA_SIZE); 
+                    
+                    let overlaps = false;
+                    
+                    // 2. 簡化碰撞檢測：檢查中心點距離是否足夠遠
+                    for (const existingCountry of newCountryData) {
+                        const dx = centerX - existingCountry.center.x;
+                        const dy = centerY - existingCountry.center.y;
+                        const distanceSquared = dx * dx + dy * dy;
+                        
+                        // 檢查距離是否小於最小允許距離（兩個國家最大半徑之和的平方）
+                        // 這裡使用簡化半徑 MIN_AREA_SIZE 確保它們不會太靠近
+                        if (distanceSquared < MIN_DISTANCE_SQUARED) {
+                            overlaps = true;
+                            break;
+                        }
+                    }
+                    
+                    if (!overlaps) {
+                        // 3. 生成形狀
+                        const shape = generateRandomCurveShape(centerX, centerY, size * 0.5); // size * 0.5 作為半徑
+
+                        newCountryData.push({
+                            name: INITIAL_NAMES[i],
+                            color: INITIAL_COLORS[i],
+                            center: {x: centerX, y: centerY},
+                            ...shape,
+                            // size 參數用於輔助碰撞檢測
+                            size: size 
+                        });
+                        safeLocationFound = true;
+                    }
+                }
+            }
+            countries = newCountryData;
+            draw();
+        }
+        
+        // ----------------------------------------------------
+        // 初始化與事件監聽
+        // ----------------------------------------------------
+
+        // 按鈕點擊事件：重新生成國家
+        restartButton.addEventListener('click', () => {
+            generateNewCountries();
+        });
+        
+        // 確保初始載入時就有三個國家
+        generateNewCountries(); 
+
+        // 調整畫布大小以填滿視窗
         function resizeCanvas() {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
             draw();
         }
         window.addEventListener('resize', resizeCanvas);
-        resizeCanvas(); 
+        // 初始呼叫 resizeCanvas 已包含在 generateNewCountries 之後，這裡不再重複。
 
+        
+        // ... (以下互動邏輯與前次版本完全相同) ...
         // ----------------------------------------------------
         // 互動邏輯 - 抽象化
         // ----------------------------------------------------
         
-        /**
-         * 執行縮放操作 (通用邏輯)
-         * @param {number} clientX - 縮放中心點的 X 螢幕座標
-         * @param {number} clientY - 縮放中心點的 Y 螢幕座標
-         * @param {number} newScale - 欲達到的新的縮放比例
-         */
+        function getDistance(touch1, touch2) {
+            return Math.sqrt(
+                Math.pow(touch2.clientX - touch1.clientX, 2) + 
+                Math.pow(touch2.clientY - touch1.clientY, 2)
+            );
+        }
+        
         function performZoom(clientX, clientY, newScale) {
-            // 限制縮放範圍
             newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, newScale));
-
             const rect = canvas.getBoundingClientRect();
             const mouseX = clientX - rect.left;
             const mouseY = clientY - rect.top;
 
-            // 1. 取得縮放前，中心點對應的世界座標
             const worldXBefore = (mouseX - canvas.width / 2) / scale - panX;
             const worldYBefore = (mouseY - canvas.height / 2) / scale - panY;
 
-            // 2. 更新縮放比例
             scale = newScale;
 
-            // 3. 取得縮放後，中心點對應的世界座標
             const worldXAfter = (mouseX - canvas.width / 2) / scale - panX;
             const worldYAfter = (mouseY - canvas.height / 2) / scale - panY;
 
-            // 4. 計算平移量補償 (實現以中心點為中心縮放)
             panX += (worldXAfter - worldXBefore);
             panY += (worldYAfter - worldYBefore);
             
             draw();
         }
         
-        // --- 拖曳/平移函數 ---
         function handleMove(clientX, clientY) {
-            if (!isDragging || isPinching) return; // 捏合時禁用拖曳
+            if (!isDragging || isPinching) return; 
 
             const deltaX = clientX - lastX;
             const deltaY = clientY - lastY;
@@ -163,44 +279,29 @@
             lastTouchDistance = null;
             canvas.classList.remove('grabbing');
         }
-
-        // ----------------------------------------------------
-        // 1. 滑鼠事件 (桌面)
-        // ----------------------------------------------------
+        
+        // 滑鼠事件
         canvas.addEventListener('mousedown', (e) => handleStart(e.clientX, e.clientY));
         canvas.addEventListener('mousemove', (e) => handleMove(e.clientX, e.clientY));
         window.addEventListener('mouseup', handleEnd);
 
-        // 滾輪縮放 (桌面)
+        // 滾輪縮放
         canvas.addEventListener('wheel', (e) => {
             e.preventDefault(); 
-            // 滾輪縮放因子是線性的
-            const delta = e.deltaY * -ZOOM_SPEED * 10; // 乘以 10 讓縮放更靈敏
+            const delta = e.deltaY * -ZOOM_SPEED * 10; 
             const newScale = scale * (1 + delta);
             performZoom(e.clientX, e.clientY, newScale);
         });
         
-        // ----------------------------------------------------
-        // 2. 觸控事件 (行動裝置)
-        // ----------------------------------------------------
-
-        function getDistance(touch1, touch2) {
-            return Math.sqrt(
-                Math.pow(touch2.clientX - touch1.clientX, 2) + 
-                Math.pow(touch2.clientY - touch1.clientY, 2)
-            );
-        }
-
+        // 觸控事件
         canvas.addEventListener('touchstart', (e) => {
             e.preventDefault(); 
             
             if (e.touches.length === 1) {
-                // 單指：開始拖曳
                 handleStart(e.touches[0].clientX, e.touches[0].clientY);
             } else if (e.touches.length === 2) {
-                // 雙指：開始縮放
                 isPinching = true;
-                handleEnd(); // 停止可能的單指拖曳狀態
+                handleEnd(); 
                 
                 const t1 = e.touches[0];
                 const t2 = e.touches[1];
@@ -215,11 +316,9 @@
             e.preventDefault(); 
             
             if (e.touches.length === 1 && !isPinching) {
-                // 單指移動 (平移)
                 handleMove(e.touches[0].clientX, e.touches[0].clientY);
                 
             } else if (e.touches.length === 2) {
-                // 雙指移動 (縮放)
                 isPinching = true;
                 const t1 = e.touches[0];
                 const t2 = e.touches[1];
@@ -227,26 +326,22 @@
                 const currentDistance = getDistance(t1, t2);
                 const deltaDistance = currentDistance - lastTouchDistance;
                 
-                // 計算縮放中心 (兩指中心點)
                 touchCenter.x = (t1.clientX + t2.clientX) / 2;
                 touchCenter.y = (t1.clientY + t2.clientY) / 2;
                 
-                // 根據距離變化量計算新的縮放比例
-                const scaleFactor = deltaDistance * 0.005; // 縮放敏感度調整
+                const scaleFactor = deltaDistance * 0.005; 
                 const newScale = scale + (scale * scaleFactor);
 
                 performZoom(touchCenter.x, touchCenter.y, newScale);
 
-                lastTouchDistance = currentDistance; // 更新距離
+                lastTouchDistance = currentDistance; 
             }
         });
 
         window.addEventListener('touchend', (e) => {
-            // 如果所有手指都抬起，則結束所有操作
             if (e.touches.length === 0) {
                 handleEnd();
             } else if (e.touches.length === 1) {
-                // 如果只剩一根手指，重置捏合狀態，並為潛在的單指拖曳準備
                 isPinching = false;
                 lastTouchDistance = null;
                 handleStart(e.touches[0].clientX, e.touches[0].clientY);
@@ -255,14 +350,13 @@
         window.addEventListener('touchcancel', handleEnd); 
 
         // ----------------------------------------------------
-        // 繪圖邏輯 (與前次版本相同)
+        // 繪圖邏輯
         // ----------------------------------------------------
 
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.save();
 
-            // 應用變換矩陣
             ctx.translate(canvas.width / 2, canvas.height / 2);
             ctx.scale(scale, scale);
             ctx.translate(panX, panY);
@@ -278,10 +372,8 @@
                 ctx.fillStyle = country.color;
                 ctx.beginPath();
                 
-                // 1. 移動到曲線起始點
                 ctx.moveTo(country.startPoint.x, country.startPoint.y);
                 
-                // 2. 依序繪製三次貝茲曲線段
                 country.curves.forEach(curve => {
                     const cp1 = curve[0];
                     const cp2 = curve[1];
@@ -290,17 +382,14 @@
                     ctx.bezierCurveTo(cp1.x, cp1.y, cp2.x, cp2.y, end.x, end.y);
                 });
                 
-                // 3. 閉合路徑並填充
                 ctx.closePath();
                 ctx.fill();
                 
-                // 繪製邊框
                 ctx.strokeStyle = '#333333';
                 ctx.lineWidth = 3 / scale; 
                 ctx.stroke();
 
                 
-                // 繪製國家名稱
                 ctx.font = `${20 / scale}px Arial`;
                 ctx.fillStyle = (country.color === "#FFC107") ? "#000000" : "#ffffff"; 
                 ctx.textAlign = 'center';
@@ -345,7 +434,6 @@
 
             ctx.stroke();
 
-            // 繪製主要網格
             if (gridSize * 5 * scale > 20) {
                 const majorGridSize = gridSize * 5;
                 ctx.strokeStyle = '#aaaaaa';
