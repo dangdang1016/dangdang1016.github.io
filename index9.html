@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>無邊際平面與不規則曲線標記</title>
+    <title>支援雙指縮放的無邊際平面</title>
     <style>
         body {
             margin: 0;
@@ -43,24 +43,26 @@
         let isDragging = false;
         let lastX = 0;
         let lastY = 0;
+        
+        // 觸控專用變數
+        let isPinching = false;
+        let lastTouchDistance = null; // 上次兩指之間的距離
+        let touchCenter = { x: 0, y: 0 }; // 兩指的中心點
 
         // 網格設定
         const BASE_GRID_SIZE = 50; 
         
         // 國家標記數據 (使用三次貝茲曲線定義平滑形狀)
-        // shape 陣列中的每個元素定義了一段曲線：[控制點1, 控制點2, 結束點]
         const countries = [
             { 
                 name: "國家 A (藍)", 
                 color: "#007BFF", 
-                center: {x: -100, y: -100}, // 文字中心點
-                // 曲線段的定義：每段從上一個結束點開始
-                // 格式: [{cp1x, cp1y}, {cp2x, cp2y}, {endX, endY}]
-                startPoint: {x: -250, y: -100}, // 曲線起始點
+                center: {x: -100, y: -100}, 
+                startPoint: {x: -250, y: -100}, 
                 curves: [
                     [{x: -200, y: -250}, {x: -50, y: -250}, {x: 0, y: -100}],
                     [{x: 50, y: 50}, {x: -100, y: 150}, {x: -200, y: 50}],
-                    [{x: -300, y: 0}, {x: -300, y: -50}, {x: -250, y: -100}] // 閉合回起始點
+                    [{x: -300, y: 0}, {x: -300, y: -50}, {x: -250, y: -100}] 
                 ]
             },
             { 
@@ -88,7 +90,7 @@
         ];
 
         // ----------------------------------------------------
-        // 初始化與互動函數 (保持與前次版本相同)
+        // 初始化與公用函數
         // ----------------------------------------------------
 
         function resizeCanvas() {
@@ -99,8 +101,46 @@
         window.addEventListener('resize', resizeCanvas);
         resizeCanvas(); 
 
+        // ----------------------------------------------------
+        // 互動邏輯 - 抽象化
+        // ----------------------------------------------------
+        
+        /**
+         * 執行縮放操作 (通用邏輯)
+         * @param {number} clientX - 縮放中心點的 X 螢幕座標
+         * @param {number} clientY - 縮放中心點的 Y 螢幕座標
+         * @param {number} newScale - 欲達到的新的縮放比例
+         */
+        function performZoom(clientX, clientY, newScale) {
+            // 限制縮放範圍
+            newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, newScale));
+
+            const rect = canvas.getBoundingClientRect();
+            const mouseX = clientX - rect.left;
+            const mouseY = clientY - rect.top;
+
+            // 1. 取得縮放前，中心點對應的世界座標
+            const worldXBefore = (mouseX - canvas.width / 2) / scale - panX;
+            const worldYBefore = (mouseY - canvas.height / 2) / scale - panY;
+
+            // 2. 更新縮放比例
+            scale = newScale;
+
+            // 3. 取得縮放後，中心點對應的世界座標
+            const worldXAfter = (mouseX - canvas.width / 2) / scale - panX;
+            const worldYAfter = (mouseY - canvas.height / 2) / scale - panY;
+
+            // 4. 計算平移量補償 (實現以中心點為中心縮放)
+            panX += (worldXAfter - worldXBefore);
+            panY += (worldYAfter - worldYBefore);
+            
+            draw();
+        }
+        
+        // --- 拖曳/平移函數 ---
         function handleMove(clientX, clientY) {
-            if (!isDragging) return;
+            if (!isDragging || isPinching) return; // 捏合時禁用拖曳
+
             const deltaX = clientX - lastX;
             const deltaY = clientY - lastY;
             panX += deltaX / scale;
@@ -119,57 +159,103 @@
 
         function handleEnd() {
             isDragging = false;
+            isPinching = false;
+            lastTouchDistance = null;
             canvas.classList.remove('grabbing');
         }
-        
-        // 滑鼠事件
+
+        // ----------------------------------------------------
+        // 1. 滑鼠事件 (桌面)
+        // ----------------------------------------------------
         canvas.addEventListener('mousedown', (e) => handleStart(e.clientX, e.clientY));
         canvas.addEventListener('mousemove', (e) => handleMove(e.clientX, e.clientY));
         window.addEventListener('mouseup', handleEnd);
 
-        // 觸控事件
+        // 滾輪縮放 (桌面)
+        canvas.addEventListener('wheel', (e) => {
+            e.preventDefault(); 
+            // 滾輪縮放因子是線性的
+            const delta = e.deltaY * -ZOOM_SPEED * 10; // 乘以 10 讓縮放更靈敏
+            const newScale = scale * (1 + delta);
+            performZoom(e.clientX, e.clientY, newScale);
+        });
+        
+        // ----------------------------------------------------
+        // 2. 觸控事件 (行動裝置)
+        // ----------------------------------------------------
+
+        function getDistance(touch1, touch2) {
+            return Math.sqrt(
+                Math.pow(touch2.clientX - touch1.clientX, 2) + 
+                Math.pow(touch2.clientY - touch1.clientY, 2)
+            );
+        }
+
         canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault(); 
+            
             if (e.touches.length === 1) {
-                e.preventDefault(); 
+                // 單指：開始拖曳
+                handleStart(e.touches[0].clientX, e.touches[0].clientY);
+            } else if (e.touches.length === 2) {
+                // 雙指：開始縮放
+                isPinching = true;
+                handleEnd(); // 停止可能的單指拖曳狀態
+                
+                const t1 = e.touches[0];
+                const t2 = e.touches[1];
+                
+                lastTouchDistance = getDistance(t1, t2);
+                touchCenter.x = (t1.clientX + t2.clientX) / 2;
+                touchCenter.y = (t1.clientY + t2.clientY) / 2;
+            }
+        });
+
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault(); 
+            
+            if (e.touches.length === 1 && !isPinching) {
+                // 單指移動 (平移)
+                handleMove(e.touches[0].clientX, e.touches[0].clientY);
+                
+            } else if (e.touches.length === 2) {
+                // 雙指移動 (縮放)
+                isPinching = true;
+                const t1 = e.touches[0];
+                const t2 = e.touches[1];
+                
+                const currentDistance = getDistance(t1, t2);
+                const deltaDistance = currentDistance - lastTouchDistance;
+                
+                // 計算縮放中心 (兩指中心點)
+                touchCenter.x = (t1.clientX + t2.clientX) / 2;
+                touchCenter.y = (t1.clientY + t2.clientY) / 2;
+                
+                // 根據距離變化量計算新的縮放比例
+                const scaleFactor = deltaDistance * 0.005; // 縮放敏感度調整
+                const newScale = scale + (scale * scaleFactor);
+
+                performZoom(touchCenter.x, touchCenter.y, newScale);
+
+                lastTouchDistance = currentDistance; // 更新距離
+            }
+        });
+
+        window.addEventListener('touchend', (e) => {
+            // 如果所有手指都抬起，則結束所有操作
+            if (e.touches.length === 0) {
+                handleEnd();
+            } else if (e.touches.length === 1) {
+                // 如果只剩一根手指，重置捏合狀態，並為潛在的單指拖曳準備
+                isPinching = false;
+                lastTouchDistance = null;
                 handleStart(e.touches[0].clientX, e.touches[0].clientY);
             }
         });
-        canvas.addEventListener('touchmove', (e) => {
-            if (e.touches.length === 1) {
-                e.preventDefault(); 
-                handleMove(e.touches[0].clientX, e.touches[0].clientY);
-            }
-        });
-        window.addEventListener('touchend', handleEnd);
         window.addEventListener('touchcancel', handleEnd); 
 
-        // 滾輪事件
-        canvas.addEventListener('wheel', (e) => {
-            e.preventDefault(); 
-            const delta = e.deltaY * -ZOOM_SPEED;
-            const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale * (1 + delta)));
-
-            const rect = canvas.getBoundingClientRect();
-            const mouseX = e.clientX - rect.left;
-            const mouseY = e.clientY - rect.top;
-
-            const worldXBefore = (mouseX - canvas.width / 2) / scale - panX;
-            const worldYBefore = (mouseY - canvas.height / 2) / scale - panY;
-
-            scale = newScale;
-
-            const worldXAfter = (mouseX - canvas.width / 2) / scale - panX;
-            const worldYAfter = (mouseY - canvas.height / 2) / scale - panY;
-
-            panX += (worldXAfter - worldXBefore);
-            panY += (worldYAfter - worldYBefore);
-
-            draw();
-        });
-
-
         // ----------------------------------------------------
-        // 繪圖邏輯
+        // 繪圖邏輯 (與前次版本相同)
         // ----------------------------------------------------
 
         function draw() {
@@ -182,14 +268,11 @@
             ctx.translate(panX, panY);
 
             drawGrid();
-            drawCountries(); // <-- 繪製不規則曲線國家標記
+            drawCountries(); 
 
             ctx.restore();
         }
 
-        /**
-         * 繪製不規則曲線形狀的國家
-         */
         function drawCountries() {
             countries.forEach(country => {
                 ctx.fillStyle = country.color;
@@ -204,7 +287,6 @@
                     const cp2 = curve[1];
                     const end = curve[2];
                     
-                    // ctx.bezierCurveTo(控制點1x, 控制點1y, 控制點2x, 控制點2y, 結束點x, 結束點y)
                     ctx.bezierCurveTo(cp1.x, cp1.y, cp2.x, cp2.y, end.x, end.y);
                 });
                 
@@ -224,7 +306,6 @@
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 
-                // 使用預定義的中心點 (center) 來放置文字
                 ctx.fillText(country.name, country.center.x, country.center.y);
             });
         }
@@ -250,14 +331,12 @@
 
             ctx.beginPath();
 
-            // 繪製垂直線
             let firstX = Math.floor(startX / gridSize) * gridSize;
             for (let x = firstX; x < endX; x += gridSize) {
                 ctx.moveTo(x, startY);
                 ctx.lineTo(x, endY);
             }
 
-            // 繪製水平線
             let firstY = Math.floor(startY / gridSize) * gridSize;
             for (let y = firstY; y < endY; y += gridSize) {
                 ctx.moveTo(startX, y);
