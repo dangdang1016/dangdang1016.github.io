@@ -2,17 +2,19 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>純淨無邊際平面</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>支援觸控的無邊際平面</title>
     <style>
         body {
             margin: 0;
-            overflow: hidden; /* 隱藏滾動條 */
+            overflow: hidden; 
             background-color: #f0f0f0;
+            touch-action: none; /* 禁用瀏覽器預設的觸控行為，讓 Canvas 完全接管 */
         }
         #infiniteCanvas {
             display: block;
-            cursor: grab; /* 拖曳時的游標 */
+            /* 桌面版游標 */
+            cursor: grab; 
         }
         #infiniteCanvas.grabbing {
             cursor: grabbing;
@@ -31,23 +33,23 @@
         const ctx = canvas.getContext('2d');
 
         // 畫布的狀態：平移偏移量和縮放比例
-        let panX = 0; // X 軸平移偏移量 (在世界座標系中)
-        let panY = 0; // Y 軸平移偏移量 (在世界座標系中)
+        let panX = 0; // X 軸平移偏移量 (世界座標)
+        let panY = 0; // Y 軸平移偏移量 (世界座標)
         let scale = 1.0; // 縮放比例
         const MIN_SCALE = 0.1;
         const MAX_SCALE = 5.0;
         const ZOOM_SPEED = 0.001; // 滾輪縮放速度
 
-        // 滑鼠/拖曳相關變數
+        // 互動狀態變數
         let isDragging = false;
-        let lastMouseX = 0;
-        let lastMouseY = 0;
+        let lastX = 0;
+        let lastY = 0;
 
         // 網格設定
         const BASE_GRID_SIZE = 50; // 基礎網格單元大小 (世界座標單位)
 
         // ----------------------------------------------------
-        // 初始化與事件監聽
+        // 初始化與公用函數
         // ----------------------------------------------------
 
         // 調整畫布大小以填滿視窗
@@ -59,41 +61,84 @@
         window.addEventListener('resize', resizeCanvas);
         resizeCanvas(); // 初始呼叫
 
-        // 滑鼠按下 (開始拖曳)
-        canvas.addEventListener('mousedown', (e) => {
-            isDragging = true;
-            lastMouseX = e.clientX;
-            lastMouseY = e.clientY;
-            canvas.classList.add('grabbing');
-        });
-
-        // 滑鼠移動 (平移)
-        canvas.addEventListener('mousemove', (e) => {
+        /**
+         * 處理平移 (拖曳或單指觸控)
+         * @param {number} clientX - 當前的 X 螢幕座標
+         * @param {number} clientY - 當前的 Y 螢幕座標
+         */
+        function handleMove(clientX, clientY) {
             if (!isDragging) return;
 
-            // 計算滑鼠移動的像素距離
-            const deltaX = e.clientX - lastMouseX;
-            const deltaY = e.clientY - lastMouseY;
+            // 計算螢幕上的像素移動距離
+            const deltaX = clientX - lastX;
+            const deltaY = clientY - lastY;
 
             // 將像素距離轉換為世界座標距離 (需要考慮縮放)
             panX += deltaX / scale;
             panY += deltaY / scale;
 
-            lastMouseX = e.clientX;
-            lastMouseY = e.clientY;
+            lastX = clientX;
+            lastY = clientY;
 
             draw();
-        });
+        }
 
-        // 滑鼠放開 (結束拖曳)
-        window.addEventListener('mouseup', () => {
+        /**
+         * 處理開始拖曳 (滑鼠按下或單指觸控開始)
+         * @param {number} clientX - X 螢幕座標
+         * @param {number} clientY - Y 螢幕座標
+         */
+        function handleStart(clientX, clientY) {
+            isDragging = true;
+            lastX = clientX;
+            lastY = clientY;
+            canvas.classList.add('grabbing');
+        }
+
+        /**
+         * 處理結束拖曳
+         */
+        function handleEnd() {
             isDragging = false;
             canvas.classList.remove('grabbing');
+        }
+        
+        // ----------------------------------------------------
+        // 1. 滑鼠事件 (用於桌面)
+        // ----------------------------------------------------
+        canvas.addEventListener('mousedown', (e) => handleStart(e.clientX, e.clientY));
+        canvas.addEventListener('mousemove', (e) => handleMove(e.clientX, e.clientY));
+        window.addEventListener('mouseup', handleEnd);
+
+
+        // ----------------------------------------------------
+        // 2. 觸控事件 (用於行動裝置)
+        // ----------------------------------------------------
+        canvas.addEventListener('touchstart', (e) => {
+            // 只需要處理單指觸控 (拖曳/平移)
+            if (e.touches.length === 1) {
+                e.preventDefault(); // 阻止預設行為 (例如螢幕捲動)
+                handleStart(e.touches[0].clientX, e.touches[0].clientY);
+            }
         });
 
-        // 滑鼠滾輪 (縮放)
+        canvas.addEventListener('touchmove', (e) => {
+            // 只需要處理單指觸控 (拖曳/平移)
+            if (e.touches.length === 1) {
+                e.preventDefault(); 
+                handleMove(e.touches[0].clientX, e.touches[0].clientY);
+            }
+        });
+
+        window.addEventListener('touchend', handleEnd);
+        window.addEventListener('touchcancel', handleEnd); // 處理觸控意外中斷
+
+
+        // ----------------------------------------------------
+        // 3. 滾輪事件 (用於縮放)
+        // ----------------------------------------------------
         canvas.addEventListener('wheel', (e) => {
-            e.preventDefault(); // 防止頁面滾動
+            e.preventDefault(); 
 
             // 計算縮放因子
             const delta = e.deltaY * -ZOOM_SPEED;
@@ -105,7 +150,6 @@
             const mouseY = e.clientY - rect.top;
 
             // 1. 取得縮放前，滑鼠點對應的世界座標
-            // (螢幕座標 - 畫布中心) / 縮放 - 平移偏移
             const worldXBefore = (mouseX - canvas.width / 2) / scale - panX;
             const worldYBefore = (mouseY - canvas.height / 2) / scale - panY;
 
@@ -116,66 +160,54 @@
             const worldXAfter = (mouseX - canvas.width / 2) / scale - panX;
             const worldYAfter = (mouseY - canvas.height / 2) / scale - panY;
 
-            // 4. 計算平移量補償，確保滑鼠點的世界座標不變 (實現以滑鼠為中心縮放)
+            // 4. 計算平移量補償
             panX += (worldXAfter - worldXBefore);
             panY += (worldYAfter - worldYBefore);
 
             draw();
         });
 
+
         // ----------------------------------------------------
-        // 繪圖邏輯
+        // 繪圖邏輯 (與前次版本相同，專注於繪製動態網格)
         // ----------------------------------------------------
 
         function draw() {
-            // 清空畫布
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            // 儲存狀態，以便在繪製網格後恢復
             ctx.save();
 
-            // 1. 將原點平移到畫布中心
+            // 應用變換矩陣：中心平移 -> 縮放 -> 世界平移
             ctx.translate(canvas.width / 2, canvas.height / 2);
-
-            // 2. 執行縮放操作
             ctx.scale(scale, scale);
-
-            // 3. 執行平移操作
             ctx.translate(panX, panY);
 
-            // 繪製網格
             drawGrid();
 
-            // 恢復畫布狀態
             ctx.restore();
         }
 
         function drawGrid() {
-            // 根據縮放比例調整網格間距
+            // 動態調整網格大小
             let gridSize = BASE_GRID_SIZE;
-            
-            // 動態調整網格大小，保持視覺上的合理性 (例如，在螢幕上至少 20px，不超過 100px)
             while (gridSize * scale < 20) {
-                gridSize *= 5; // 縮小時，增加間距
+                gridSize *= 5; 
             }
             while (gridSize * scale > 100) {
-                gridSize /= 5; // 放大時，減小間距
+                gridSize /= 5; 
             }
 
             // 計算畫布可視範圍在世界座標中的邊界
-            // 由於已經進行了變換，這裡計算的是當前視圖的邊界
             const startX = (-canvas.width / 2 / scale) - panX;
             const startY = (-canvas.height / 2 / scale) - panY;
             const endX = (canvas.width / 2 / scale) - panX;
             const endY = (canvas.height / 2 / scale) - panY;
             
             ctx.strokeStyle = '#cccccc';
-            ctx.lineWidth = 1 / scale; // 保持線寬在螢幕上一致
+            ctx.lineWidth = 1 / scale; 
 
             ctx.beginPath();
 
             // 繪製垂直線
-            // 找到第一個可見網格線的 X 座標
             let firstX = Math.floor(startX / gridSize) * gridSize;
             for (let x = firstX; x < endX; x += gridSize) {
                 ctx.moveTo(x, startY);
@@ -183,7 +215,6 @@
             }
 
             // 繪製水平線
-            // 找到第一個可見網格線的 Y 座標
             let firstY = Math.floor(startY / gridSize) * gridSize;
             for (let y = firstY; y < endY; y += gridSize) {
                 ctx.moveTo(startX, y);
@@ -192,7 +223,7 @@
 
             ctx.stroke();
 
-            // 繪製主要網格 (較深的顏色，每 5 個單位)
+            // 繪製主要網格 (較深的顏色)
             if (gridSize * 5 * scale > 20) {
                 const majorGridSize = gridSize * 5;
                 ctx.strokeStyle = '#aaaaaa';
@@ -200,14 +231,12 @@
 
                 ctx.beginPath();
 
-                // 垂直線
                 let firstMajorX = Math.floor(startX / majorGridSize) * majorGridSize;
                 for (let x = firstMajorX; x < endX; x += majorGridSize) {
                     ctx.moveTo(x, startY);
                     ctx.lineTo(x, endY);
                 }
 
-                // 水平線
                 let firstMajorY = Math.floor(startY / majorGridSize) * majorGridSize;
                 for (let y = firstMajorY; y < endY; y += majorGridSize) {
                     ctx.moveTo(startX, y);
