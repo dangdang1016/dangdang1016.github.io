@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>網頁版無邊際平面</title>
+    <title>純淨無邊際平面</title>
     <style>
         body {
             margin: 0;
@@ -76,7 +76,6 @@
             const deltaY = e.clientY - lastMouseY;
 
             // 將像素距離轉換為世界座標距離 (需要考慮縮放)
-            // panX 和 panY 儲存的是世界座標的偏移量
             panX += deltaX / scale;
             panY += deltaY / scale;
 
@@ -100,25 +99,24 @@
             const delta = e.deltaY * -ZOOM_SPEED;
             const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale * (1 + delta)));
 
-            // 縮放中心點 (以滑鼠位置為中心)
-            // 將螢幕座標 (e.clientX, e.clientY) 轉換為世界座標 (worldX, worldY)
+            // 縮放中心點 (以滑鼠位置為中心) 
             const rect = canvas.getBoundingClientRect();
             const mouseX = e.clientX - rect.left;
             const mouseY = e.clientY - rect.top;
 
             // 1. 取得縮放前，滑鼠點對應的世界座標
+            // (螢幕座標 - 畫布中心) / 縮放 - 平移偏移
             const worldXBefore = (mouseX - canvas.width / 2) / scale - panX;
             const worldYBefore = (mouseY - canvas.height / 2) / scale - panY;
 
             // 2. 更新縮放比例
             scale = newScale;
 
-            // 3. 取得縮放後，滑鼠點對應的世界座標 (理想情況下應該一樣)
+            // 3. 取得縮放後，滑鼠點對應的世界座標
             const worldXAfter = (mouseX - canvas.width / 2) / scale - panX;
             const worldYAfter = (mouseY - canvas.height / 2) / scale - panY;
 
-            // 4. 計算平移量補償，確保滑鼠點在縮放前後的世界座標不變
-            // 新的 pan = 舊的 pan + (世界座標變動量)
+            // 4. 計算平移量補償，確保滑鼠點的世界座標不變 (實現以滑鼠為中心縮放)
             panX += (worldXAfter - worldXBefore);
             panY += (worldYAfter - worldYBefore);
 
@@ -136,23 +134,17 @@
             // 儲存狀態，以便在繪製網格後恢復
             ctx.save();
 
-            // 將原點平移到畫布中心 (這樣縮放時才會以中心為原點)
+            // 1. 將原點平移到畫布中心
             ctx.translate(canvas.width / 2, canvas.height / 2);
 
-            // 執行縮放操作
+            // 2. 執行縮放操作
             ctx.scale(scale, scale);
 
-            // 執行平移操作 (panX, panY 是世界座標系上的偏移量)
+            // 3. 執行平移操作
             ctx.translate(panX, panY);
 
             // 繪製網格
             drawGrid();
-
-            // 繪製座標軸 (可選)
-            drawAxes();
-            
-            // 繪製一個固定在世界座標 (100, 100) 的點 (測試用)
-            drawWorldPoint(100, 100);
 
             // 恢復畫布狀態
             ctx.restore();
@@ -162,8 +154,7 @@
             // 根據縮放比例調整網格間距
             let gridSize = BASE_GRID_SIZE;
             
-            // 讓網格大小隨著縮放級別變化，保持視覺上的合理性
-            // 確保網格在螢幕上可見且不至於過密或過疏
+            // 動態調整網格大小，保持視覺上的合理性 (例如，在螢幕上至少 20px，不超過 100px)
             while (gridSize * scale < 20) {
                 gridSize *= 5; // 縮小時，增加間距
             }
@@ -172,14 +163,9 @@
             }
 
             // 計算畫布可視範圍在世界座標中的邊界
-            // 注意：我們已經在 draw 函數中將原點平移到中心並進行了縮放和平移操作，
-            // 這裡的座標轉換比較直觀，只需要考慮已經設置的變換。
-            
-            // 可視範圍的左上角世界座標
+            // 由於已經進行了變換，這裡計算的是當前視圖的邊界
             const startX = (-canvas.width / 2 / scale) - panX;
             const startY = (-canvas.height / 2 / scale) - panY;
-
-            // 可視範圍的右下角世界座標
             const endX = (canvas.width / 2 / scale) - panX;
             const endY = (canvas.height / 2 / scale) - panY;
             
@@ -206,7 +192,7 @@
 
             ctx.stroke();
 
-            // 繪製主要網格 (更深的顏色，例如每 5 個單位)
+            // 繪製主要網格 (較深的顏色，每 5 個單位)
             if (gridSize * 5 * scale > 20) {
                 const majorGridSize = gridSize * 5;
                 ctx.strokeStyle = '#aaaaaa';
@@ -214,14 +200,14 @@
 
                 ctx.beginPath();
 
-                // 繪製垂直線
+                // 垂直線
                 let firstMajorX = Math.floor(startX / majorGridSize) * majorGridSize;
                 for (let x = firstMajorX; x < endX; x += majorGridSize) {
                     ctx.moveTo(x, startY);
                     ctx.lineTo(x, endY);
                 }
 
-                // 繪製水平線
+                // 水平線
                 let firstMajorY = Math.floor(startY / majorGridSize) * majorGridSize;
                 for (let y = firstMajorY; y < endY; y += majorGridSize) {
                     ctx.moveTo(startX, y);
@@ -231,54 +217,6 @@
                 ctx.stroke();
             }
         }
-        
-        function drawAxes() {
-            const axisLength = 5000; // 繪製一段很長的線來模擬無限
-
-            ctx.lineWidth = 2 / scale; // 保持線寬一致
-            ctx.font = `${10 / scale}px Arial`; // 保持字體大小一致
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-
-            // X 軸 (紅色)
-            ctx.strokeStyle = '#ff0000';
-            ctx.beginPath();
-            ctx.moveTo(-axisLength, 0);
-            ctx.lineTo(axisLength, 0);
-            ctx.stroke();
-            // 繪製原點標記
-            ctx.fillStyle = '#ff0000';
-            ctx.fillText('X', axisLength / 2, 10 / scale);
-
-
-            // Y 軸 (藍色)
-            ctx.strokeStyle = '#0000ff';
-            ctx.beginPath();
-            ctx.moveTo(0, -axisLength);
-            ctx.lineTo(0, axisLength);
-            ctx.stroke();
-            // 繪製原點標記
-            ctx.fillStyle = '#0000ff';
-            ctx.fillText('Y', 10 / scale, -axisLength / 2);
-            
-            // 原點 (黑色點)
-            ctx.fillStyle = '#000000';
-            ctx.beginPath();
-            ctx.arc(0, 0, 5 / scale, 0, Math.PI * 2);
-            ctx.fill();
-        }
-        
-        function drawWorldPoint(x, y) {
-            ctx.fillStyle = '#008000';
-            ctx.beginPath();
-            ctx.arc(x, y, 10 / scale, 0, Math.PI * 2);
-            ctx.fill();
-            
-            ctx.fillStyle = '#000000';
-            ctx.font = `${20 / scale}px Arial`;
-            ctx.fillText(`(${x}, ${y})`, x, y - 20 / scale);
-        }
-
     </script>
 </body>
 </html>
