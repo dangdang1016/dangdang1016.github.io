@@ -20,17 +20,18 @@
             box-sizing: border-box;
         }
 
-        h2 {
-            color: #333;
-            margin-bottom: 15px;
-        }
-
-        /* 標題和按鈕容器 */
+        /* 標題和按鈕容器 - **修正重點** */
         .header-bar {
             display: flex;
-            justify-content: space-between;
+            /* 移除 justify-content: space-between; */
             align-items: center;
+            gap: 20px; /* 增加標題和按鈕之間的間距 */
             margin-bottom: 10px;
+        }
+        
+        h2 {
+            color: #333;
+            margin: 0; /* 移除預設 margin，讓 flexbox 更好地控制間距 */
         }
 
         /* 執行按鈕樣式 */
@@ -43,7 +44,6 @@
             text-decoration: none;
             display: inline-block;
             font-size: 16px;
-            margin: 4px 2px;
             cursor: pointer;
             border-radius: 5px;
             transition: background-color 0.3s;
@@ -64,12 +64,12 @@
             flex-grow: 1;
             display: flex;
             gap: 20px;
-            min-height: 0; /* 確保flex項目可以正確收縮 */
+            min-height: 0;
         }
 
         /* 編輯器區域樣式 (左側) */
         #code-editor {
-            flex: 2; /* 佔據更多空間 */
+            flex: 2;
             position: relative;
             box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
             border-radius: 5px;
@@ -99,7 +99,7 @@
 
         /* 輸出區域樣式 (右側) */
         #output-container {
-            flex: 1; /* 佔據較少空間 */
+            flex: 1;
             display: flex;
             flex-direction: column;
             border-radius: 5px;
@@ -123,7 +123,7 @@
             font-family: 'Consolas', 'Monaco', monospace;
             font-size: 13px;
             overflow: auto;
-            white-space: pre-wrap; /* 保持換行和空白，並在必要時換行 */
+            white-space: pre-wrap;
         }
 
         /* 底部狀態欄 */
@@ -147,13 +147,10 @@
         <div id="code-editor">
             <textarea id="editor-area" spellcheck="false" placeholder="# 在這裡輸入您的 Python 程式碼
 # 例如：
-def fib(n):
-    a, b = 0, 1
-    for _ in range(n):
-        print(a)
-        a, b = b, a + b
+def greet(name):
+    print(f'Hello, {name}!')
 
-fib(5)"></textarea>
+greet('Pyodide')"></textarea>
         </div>
 
         <div id="output-container">
@@ -179,7 +176,6 @@ fib(5)"></textarea>
             try {
                 statusBar.textContent = '正在載入 Python 核心...';
                 pyodideInstance = await loadPyodide({
-                    // 設置 Pyodide 的 index URL，以確保載入正確版本
                     indexURL: "https://cdn.jsdelivr.net/pyodide/v0.25.0/full/"
                 });
                 
@@ -188,10 +184,8 @@ fib(5)"></textarea>
                 runButton.textContent = '▶️ 執行程式碼 (Run)';
 
                 // 將 stdout 和 stderr 重新導向到一個自定義函式，以便捕獲輸出
-                pyodideInstance.set
                 pyodideInstance.runPython(`
                     import sys
-                    # 重寫 sys.stdout.write 和 sys.stderr.write
                     # output_to_dom 是我們在 JavaScript 中定義的函式
                     class PyodideOutput:
                         def write(self, s):
@@ -211,7 +205,6 @@ fib(5)"></textarea>
         }
 
         // 2. JavaScript 函式：將 Python 的 print 輸出寫入 DOM
-        // 必須定義為全局函式，供 Pyodide 調用
         function js_output(s) {
             outputDiv.textContent += s;
         }
@@ -255,7 +248,7 @@ fib(5)"></textarea>
         // 初始化時載入 Pyodide
         loadPyodide();
         
-        // 5. [可選] Tab 鍵處理 (與前一個編輯器相同)
+        // 5. Tab 鍵處理 (保持編輯器體驗)
         editorArea.addEventListener('keydown', function(e) {
             if (e.key === 'Tab') {
                 e.preventDefault();
