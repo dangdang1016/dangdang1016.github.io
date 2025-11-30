@@ -3,17 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>支援觸控的無邊際平面</title>
+    <title>無邊際平面與多國標記</title>
     <style>
         body {
             margin: 0;
             overflow: hidden; 
             background-color: #f0f0f0;
-            touch-action: none; /* 禁用瀏覽器預設的觸控行為，讓 Canvas 完全接管 */
+            touch-action: none; /* 禁用瀏覽器預設的觸控行為 */
         }
         #infiniteCanvas {
             display: block;
-            /* 桌面版游標 */
             cursor: grab; 
         }
         #infiniteCanvas.grabbing {
@@ -32,13 +31,13 @@
         const canvas = document.getElementById('infiniteCanvas');
         const ctx = canvas.getContext('2d');
 
-        // 畫布的狀態：平移偏移量和縮放比例
-        let panX = 0; // X 軸平移偏移量 (世界座標)
-        let panY = 0; // Y 軸平移偏移量 (世界座標)
-        let scale = 1.0; // 縮放比例
+        // 畫布的狀態
+        let panX = 0; 
+        let panY = 0; 
+        let scale = 1.0; 
         const MIN_SCALE = 0.1;
         const MAX_SCALE = 5.0;
-        const ZOOM_SPEED = 0.001; // 滾輪縮放速度
+        const ZOOM_SPEED = 0.001; 
 
         // 互動狀態變數
         let isDragging = false;
@@ -46,48 +45,38 @@
         let lastY = 0;
 
         // 網格設定
-        const BASE_GRID_SIZE = 50; // 基礎網格單元大小 (世界座標單位)
+        const BASE_GRID_SIZE = 50; 
+        
+        // 國家標記數據 (世界座標系)
+        const countries = [
+            { name: "國家 A", color: "#007BFF", x: -100, y: -100, size: 80 }, // 藍色
+            { name: "國家 B", color: "#DC3545", x: 0, y: 0, size: 100 },      // 紅色
+            { name: "國家 C", color: "#FFC107", x: 150, y: 150, size: 60 }     // 黃色
+        ];
 
         // ----------------------------------------------------
-        // 初始化與公用函數
+        // 初始化與公用函數 (與前次版本相同，用於處理互動)
         // ----------------------------------------------------
 
-        // 調整畫布大小以填滿視窗
         function resizeCanvas() {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
             draw();
         }
         window.addEventListener('resize', resizeCanvas);
-        resizeCanvas(); // 初始呼叫
+        resizeCanvas(); 
 
-        /**
-         * 處理平移 (拖曳或單指觸控)
-         * @param {number} clientX - 當前的 X 螢幕座標
-         * @param {number} clientY - 當前的 Y 螢幕座標
-         */
         function handleMove(clientX, clientY) {
             if (!isDragging) return;
-
-            // 計算螢幕上的像素移動距離
             const deltaX = clientX - lastX;
             const deltaY = clientY - lastY;
-
-            // 將像素距離轉換為世界座標距離 (需要考慮縮放)
             panX += deltaX / scale;
             panY += deltaY / scale;
-
             lastX = clientX;
             lastY = clientY;
-
             draw();
         }
 
-        /**
-         * 處理開始拖曳 (滑鼠按下或單指觸控開始)
-         * @param {number} clientX - X 螢幕座標
-         * @param {number} clientY - Y 螢幕座標
-         */
         function handleStart(clientX, clientY) {
             isDragging = true;
             lastX = clientX;
@@ -95,72 +84,50 @@
             canvas.classList.add('grabbing');
         }
 
-        /**
-         * 處理結束拖曳
-         */
         function handleEnd() {
             isDragging = false;
             canvas.classList.remove('grabbing');
         }
         
-        // ----------------------------------------------------
-        // 1. 滑鼠事件 (用於桌面)
-        // ----------------------------------------------------
+        // 滑鼠事件
         canvas.addEventListener('mousedown', (e) => handleStart(e.clientX, e.clientY));
         canvas.addEventListener('mousemove', (e) => handleMove(e.clientX, e.clientY));
         window.addEventListener('mouseup', handleEnd);
 
-
-        // ----------------------------------------------------
-        // 2. 觸控事件 (用於行動裝置)
-        // ----------------------------------------------------
+        // 觸控事件
         canvas.addEventListener('touchstart', (e) => {
-            // 只需要處理單指觸控 (拖曳/平移)
             if (e.touches.length === 1) {
-                e.preventDefault(); // 阻止預設行為 (例如螢幕捲動)
+                e.preventDefault();
                 handleStart(e.touches[0].clientX, e.touches[0].clientY);
             }
         });
-
         canvas.addEventListener('touchmove', (e) => {
-            // 只需要處理單指觸控 (拖曳/平移)
             if (e.touches.length === 1) {
                 e.preventDefault(); 
                 handleMove(e.touches[0].clientX, e.touches[0].clientY);
             }
         });
-
         window.addEventListener('touchend', handleEnd);
-        window.addEventListener('touchcancel', handleEnd); // 處理觸控意外中斷
+        window.addEventListener('touchcancel', handleEnd); 
 
-
-        // ----------------------------------------------------
-        // 3. 滾輪事件 (用於縮放)
-        // ----------------------------------------------------
+        // 滾輪事件
         canvas.addEventListener('wheel', (e) => {
             e.preventDefault(); 
-
-            // 計算縮放因子
             const delta = e.deltaY * -ZOOM_SPEED;
             const newScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale * (1 + delta)));
 
-            // 縮放中心點 (以滑鼠位置為中心) 
             const rect = canvas.getBoundingClientRect();
             const mouseX = e.clientX - rect.left;
             const mouseY = e.clientY - rect.top;
 
-            // 1. 取得縮放前，滑鼠點對應的世界座標
             const worldXBefore = (mouseX - canvas.width / 2) / scale - panX;
             const worldYBefore = (mouseY - canvas.height / 2) / scale - panY;
 
-            // 2. 更新縮放比例
             scale = newScale;
 
-            // 3. 取得縮放後，滑鼠點對應的世界座標
             const worldXAfter = (mouseX - canvas.width / 2) / scale - panX;
             const worldYAfter = (mouseY - canvas.height / 2) / scale - panY;
 
-            // 4. 計算平移量補償
             panX += (worldXAfter - worldXBefore);
             panY += (worldYAfter - worldYBefore);
 
@@ -169,7 +136,7 @@
 
 
         // ----------------------------------------------------
-        // 繪圖邏輯 (與前次版本相同，專注於繪製動態網格)
+        // 繪圖邏輯
         // ----------------------------------------------------
 
         function draw() {
@@ -182,13 +149,36 @@
             ctx.translate(panX, panY);
 
             drawGrid();
+            drawCountries(); // <-- 新增: 繪製國家標記
 
             ctx.restore();
         }
 
+        function drawCountries() {
+            countries.forEach(country => {
+                const halfSize = country.size / 2;
+                
+                ctx.fillStyle = country.color;
+                
+                // 繪製方形
+                // x, y 是中心點的世界座標，fillRect 需要左上角座標
+                ctx.fillRect(country.x - halfSize, country.y - halfSize, country.size, country.size);
+                
+                // 繪製國家名稱
+                // 保持文字大小在螢幕上的一致性
+                ctx.font = `${18 / scale}px Arial`;
+                ctx.fillStyle = (country.color === "#FFC107") ? "#000000" : "#ffffff"; // 黃色文字用黑色
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                
+                ctx.fillText(country.name, country.x, country.y);
+            });
+        }
+
+
         function drawGrid() {
-            // 動態調整網格大小
             let gridSize = BASE_GRID_SIZE;
+            
             while (gridSize * scale < 20) {
                 gridSize *= 5; 
             }
@@ -196,7 +186,6 @@
                 gridSize /= 5; 
             }
 
-            // 計算畫布可視範圍在世界座標中的邊界
             const startX = (-canvas.width / 2 / scale) - panX;
             const startY = (-canvas.height / 2 / scale) - panY;
             const endX = (canvas.width / 2 / scale) - panX;
@@ -223,7 +212,7 @@
 
             ctx.stroke();
 
-            // 繪製主要網格 (較深的顏色)
+            // 繪製主要網格
             if (gridSize * 5 * scale > 20) {
                 const majorGridSize = gridSize * 5;
                 ctx.strokeStyle = '#aaaaaa';
