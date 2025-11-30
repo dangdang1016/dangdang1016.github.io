@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>無邊際平面與多國標記</title>
+    <title>無邊際平面與不規則多國標記</title>
     <style>
         body {
             margin: 0;
             overflow: hidden; 
             background-color: #f0f0f0;
-            touch-action: none; /* 禁用瀏覽器預設的觸控行為 */
+            touch-action: none; /* 禁用瀏覽器預設的觸控行為，讓 Canvas 完全接管 */
         }
         #infiniteCanvas {
             display: block;
@@ -47,15 +47,49 @@
         // 網格設定
         const BASE_GRID_SIZE = 50; 
         
-        // 國家標記數據 (世界座標系)
+        // 國家標記數據 (使用頂點定義不規則多邊形，座標為世界座標系)
         const countries = [
-            { name: "國家 A", color: "#007BFF", x: -100, y: -100, size: 80 }, // 藍色
-            { name: "國家 B", color: "#DC3545", x: 0, y: 0, size: 100 },      // 紅色
-            { name: "國家 C", color: "#FFC107", x: 150, y: 150, size: 60 }     // 黃色
+            { 
+                name: "國家 A (藍)", 
+                color: "#007BFF", // 藍色
+                center: {x: -150, y: -100}, // 文字中心點
+                // 頂點座標 (相對於世界座標原點)
+                shape: [
+                    {x: -250, y: -180},
+                    {x: -100, y: -200},
+                    {x: -50, y: -80},
+                    {x: -200, y: 0},
+                    {x: -300, y: -50}
+                ]
+            },
+            { 
+                name: "國家 B (紅)", 
+                color: "#DC3545", // 紅色
+                center: {x: 50, y: 50},
+                shape: [
+                    {x: 0, y: 0},
+                    {x: 200, y: 50},
+                    {x: 100, y: 200},
+                    {x: 0, y: 150},
+                    {x: -50, y: 100}
+                ]
+            },      
+            { 
+                name: "國家 C (黃)", 
+                color: "#FFC107", // 黃色
+                center: {x: -200, y: 200},
+                shape: [
+                    {x: -300, y: 300},
+                    {x: -150, y: 350},
+                    {x: -50, y: 250},
+                    {x: -200, y: 100},
+                    {x: -350, y: 150}
+                ]
+            }     
         ];
 
         // ----------------------------------------------------
-        // 初始化與公用函數 (與前次版本相同，用於處理互動)
+        // 初始化與互動函數 (保持與前次版本相同)
         // ----------------------------------------------------
 
         function resizeCanvas() {
@@ -97,7 +131,7 @@
         // 觸控事件
         canvas.addEventListener('touchstart', (e) => {
             if (e.touches.length === 1) {
-                e.preventDefault();
+                e.preventDefault(); 
                 handleStart(e.touches[0].clientX, e.touches[0].clientY);
             }
         });
@@ -149,29 +183,49 @@
             ctx.translate(panX, panY);
 
             drawGrid();
-            drawCountries(); // <-- 新增: 繪製國家標記
+            drawCountries(); // <-- 繪製不規則國家標記
 
             ctx.restore();
         }
 
+        /**
+         * 繪製不規則多邊形國家
+         */
         function drawCountries() {
             countries.forEach(country => {
-                const halfSize = country.size / 2;
-                
+                const shape = country.shape;
+                if (shape.length < 2) return;
+
                 ctx.fillStyle = country.color;
+                ctx.beginPath();
                 
-                // 繪製方形
-                // x, y 是中心點的世界座標，fillRect 需要左上角座標
-                ctx.fillRect(country.x - halfSize, country.y - halfSize, country.size, country.size);
+                // 1. 移動到第一個點
+                ctx.moveTo(shape[0].x, shape[0].y);
+                
+                // 2. 連接到後續所有點
+                for (let i = 1; i < shape.length; i++) {
+                    ctx.lineTo(shape[i].x, shape[i].y);
+                }
+                
+                // 3. 閉合路徑並填充
+                ctx.closePath();
+                ctx.fill();
+                
+                // 繪製邊框 (可選，讓形狀更清晰)
+                ctx.strokeStyle = '#333333';
+                ctx.lineWidth = 3 / scale; // 線寬隨縮放調整
+                ctx.stroke();
+
                 
                 // 繪製國家名稱
-                // 保持文字大小在螢幕上的一致性
-                ctx.font = `${18 / scale}px Arial`;
-                ctx.fillStyle = (country.color === "#FFC107") ? "#000000" : "#ffffff"; // 黃色文字用黑色
+                ctx.font = `${20 / scale}px Arial`;
+                // 根據背景色選擇文字顏色
+                ctx.fillStyle = (country.color === "#FFC107") ? "#000000" : "#ffffff"; 
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
                 
-                ctx.fillText(country.name, country.x, country.y);
+                // 使用預定義的中心點 (center) 來放置文字
+                ctx.fillText(country.name, country.center.x, country.center.y);
             });
         }
 
