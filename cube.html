@@ -3,13 +3,40 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D 地面拖曳與空間旋轉 (含軸向控制器)</title>
+    <title>3D 地面拖曳與空間旋轉 (精確控制)</title>
     <style>
         body { margin: 0; overflow: hidden; }
         canvas { display: block; }
+        /* 用於顯示軸向顏色提示 */
+        #axis-legend {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            font-family: Arial, sans-serif;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        .axis-color {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            margin-right: 5px;
+            vertical-align: middle;
+            border-radius: 3px;
+        }
     </style>
 </head>
 <body>
+    <div id="axis-legend">
+        軸向顏色:<br>
+        <span class="axis-color" style="background-color: red;"></span>X 軸 (左右)<br>
+        <span class="axis-color" style="background-color: green;"></span>Y 軸 (上下)<br>
+        <span class="axis-color" style="background-color: blue;"></span>Z 軸 (前後)
+    </div>
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/TransformControls.js"></script>
@@ -52,32 +79,38 @@
         controls.dampingFactor = 0.05;
         controls.screenSpacePanning = true; 
         
-        // B. 變換控制器 (TransformControls) - 核心功能
+        // B. 變換控制器 (TransformControls)
         const transformControls = new THREE.TransformControls(camera, renderer.domElement);
-        transformControls.setMode('translate'); // 預設為移動 (三個軸向箭頭)
-        transformControls.attach(ground); // 預設先綁定地面
+        transformControls.setMode('translate'); // 移動模式
+        transformControls.attach(ground);       
         scene.add(transformControls);
         
-        // 隱藏變換控制器，直到我們點擊它
+        // 預設隱藏並禁用
         transformControls.visible = false;
         transformControls.enabled = false;
         
-        // 監聽 TransformControls 的變化事件，確保 OrbitControls 知道它被使用
+        // **限制地面只能在 XZ 平面上移動 (水平移動)**
+        transformControls.showY = false; 
+
+        // 鎖定狀態標誌：用於確保在點擊地面以外區域時，可以精確控制 OrbitControls 的行為
+        let isGroundSelected = false; // 地面是否被選中
+        let isGizmoDragging = false; // Gizmo 是否正在被拖曳
+        
+        // 監聽 TransformControls 的拖曳事件
         transformControls.addEventListener('dragging-changed', function (event) {
-            controls.enabled = !event.value; // 當 TransformControls 開始拖曳時，禁用 OrbitControls
-            // 此外，限制地面只能在 XZ 平面上移動（除非我們明確要允許 Y 軸移動）
-            if (event.value) {
-                // 如果開始拖曳，限制 Y 軸移動
-                transformControls.showY = false;
+            isGizmoDragging = event.value;
+            // 當開始拖曳 Gizmo 時，禁用 OrbitControls
+            // 當停止拖曳 Gizmo 時，檢查地面是否仍被選中，如果沒有，才重新啟用 OrbitControls
+            if (isGizmoDragging) {
+                controls.enabled = false;
+            } else if (isGroundSelected) {
+                // 如果 Gizmo 拖曳結束，但地面仍被選中，保持 OrbitControls 禁用，等待點擊非地面區域
+                controls.enabled = false;
             } else {
-                // 如果結束拖曳，恢復 Y 軸顯示，但由於我們設置了 setMode('translate')，它會保持 XZ 顯示
-                transformControls.showY = true;
+                // 否則，重新啟用 OrbitControls
+                controls.enabled = true;
             }
         });
-        
-        // 由於我們只希望地面在 XZ 平面移動，我們可以限制 Y 軸的控制
-        transformControls.showY = false;
-
 
         // --- 4. 點擊選中邏輯 ---
         const raycaster = new THREE.Raycaster();
@@ -85,8 +118,18 @@
 
         // 處理滑鼠/手指按下事件
         function onPointerDown(event) {
-            // 如果 TransformControls 已經被啟用，並且我們點擊了它的軸，則跳過以下邏輯
-            if (transformControls.dragging) return;
+            
+            // 優先檢查是否點擊到 Gizmo 本身
+            // TransformControls 有一個內建方法來檢查射線是否與其軸相交
+            raycaster.setFromCamera(pointer, camera);
+            const intersectsGizmo = raycaster.intersectObjects(transformControls.children, true);
+
+            // 如果點擊了 Gizmo 的軸，則交給 TransformControls 處理，不執行選取/取消選取邏輯
+            if (intersectsGizmo.length > 0 && transformControls.enabled && transformControls.visible) {
+                // Gizmo 已被點擊並啟用，它將會處理拖曳，我們只需要確保 OrbitControls 禁用
+                controls.enabled = false;
+                return; 
+            }
             
             // 獲取標準化裝置坐標
             pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
@@ -95,10 +138,12 @@
             raycaster.setFromCamera(pointer, camera);
 
             // 檢查是否點擊到地面
-            const intersects = raycaster.intersectObjects([ground]);
-
-            if (intersects.length > 0 && intersects[0].object.name === 'Ground') {
-                // 點擊到地面
+            const intersectsGround = raycaster.intersectObjects([ground]);
+            
+            if (intersectsGround.length > 0 && intersectsGround[0].object.name === 'Ground') {
+                // 點擊到地面 -> 選中地面
+                
+                isGroundSelected = true;
                 
                 // 啟用並顯示軸向控制器
                 transformControls.visible = true;
@@ -107,25 +152,39 @@
                 // 禁用空間旋轉控制，讓軸向控制工具工作
                 controls.enabled = false; 
 
-                // 為了避免點擊後控制器立即開始拖曳，我們在 TransformControls 的 'dragging-changed' 事件中處理控制器的啟用/禁用。
-                
             } else {
-                // 沒有點擊到地面
+                // 點擊到非地面區域
                 
-                // 隱藏並禁用軸向控制器
-                transformControls.visible = false;
-                transformControls.enabled = false;
-                
-                // 啟用空間旋轉控制
-                controls.enabled = true;
+                if (isGroundSelected) {
+                    // **符合您的要求 B: 軸向顯示時，按下非地面區域，軸向要消失，且此時不旋轉空間。**
+                    
+                    // 隱藏並禁用軸向控制器 (軸向消失)
+                    transformControls.visible = false;
+                    transformControls.enabled = false;
+                    isGroundSelected = false; // 取消選中狀態
+                    
+                    // **不啟用** OrbitControls (不旋轉空間)，直到 pointerup 事件
+                    controls.enabled = false;
+                } else {
+                    // 如果原本就沒有選中任何東西，則啟用空間旋轉
+                    controls.enabled = true;
+                }
             }
         }
-
-        // 這裡我們不再需要 `onPointerMove` 和 `onPointerUp` 來手動拖曳地面，
-        // 因為所有的拖曳動作都由 `THREE.TransformControls` 內部處理了！
+        
+        // 處理滑鼠/手指釋放事件
+        function onPointerUp(event) {
+            // 如果當前沒有選中任何東西 (isGroundSelected=false)，且 Gizmo 沒有在拖曳
+            // 則啟用 OrbitControls，允許在非選中狀態下旋轉空間
+            if (!isGroundSelected && !isGizmoDragging) {
+                controls.enabled = true;
+            }
+            // 如果地面被選中，則保持 controls.enabled = false，等待下一次點擊事件
+        }
 
         // 監聽事件
         renderer.domElement.addEventListener('pointerdown', onPointerDown);
+        renderer.domElement.addEventListener('pointerup', onPointerUp);
 
         // --- 5. 渲染迴圈 ---
         function animate() {
