@@ -3,15 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D 地面拖曳與空間旋轉 (有厚度)</title>
+    <title>3D 地面拖曳與空間旋轉 (含軸向控制器)</title>
     <style>
-        body { margin: 0; overflow: hidden; } /* 移除邊距和捲軸 */
+        body { margin: 0; overflow: hidden; }
         canvas { display: block; }
     </style>
 </head>
 <body>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/TransformControls.js"></script>
 
     <script>
         // --- 1. 場景初始化 ---
@@ -29,47 +30,65 @@
         directionalLight.position.set(1, 1, 1).normalize();
         scene.add(directionalLight);
 
-        // --- 2. 創建地面 (使用 BoxGeometry 來創建帶有厚度的地面) ---
+        // --- 2. 創建地面 (BoxGeometry 帶厚度) ---
         const groundWidth = 100;
-        const groundHeight = 0.5; // <-- 地面的厚度，設定為 0.5
+        const groundHeight = 0.5; // 地面的厚度
         const groundDepth = 100;
         
         const groundGeometry = new THREE.BoxGeometry(groundWidth, groundHeight, groundDepth);
         const groundMaterial = new THREE.MeshLambertMaterial({ color: 0x888888 });
         const ground = new THREE.Mesh(groundGeometry, groundMaterial);
-        
-        // 確保地面中心位於世界座標的 Y=0 軸上，使其看起來是“坐在”地平線上
-        ground.position.y = 0; // 當中心在 Y=0 時，厚度為 0.5 的地面將從 Y=-0.25 到 Y=0.25
-        ground.name = 'Ground'; // 給地面命名以便於識別
+        ground.name = 'Ground';
         scene.add(ground);
 
         // 初始化相機位置
         camera.position.set(20, 10, 20);
 
-        // --- 3. 實現空間旋轉 (使用 OrbitControls) ---
+        // --- 3. 設置控制器 ---
+        
+        // A. 空間旋轉控制器 (OrbitControls)
         const controls = new THREE.OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true; 
         controls.dampingFactor = 0.05;
-        // 允許相機在水平上移動 (平移)，這樣拖曳地面時不會與相機控制衝突
         controls.screenSpacePanning = true; 
+        
+        // B. 變換控制器 (TransformControls) - 核心功能
+        const transformControls = new THREE.TransformControls(camera, renderer.domElement);
+        transformControls.setMode('translate'); // 預設為移動 (三個軸向箭頭)
+        transformControls.attach(ground); // 預設先綁定地面
+        scene.add(transformControls);
+        
+        // 隱藏變換控制器，直到我們點擊它
+        transformControls.visible = false;
+        transformControls.enabled = false;
+        
+        // 監聽 TransformControls 的變化事件，確保 OrbitControls 知道它被使用
+        transformControls.addEventListener('dragging-changed', function (event) {
+            controls.enabled = !event.value; // 當 TransformControls 開始拖曳時，禁用 OrbitControls
+            // 此外，限制地面只能在 XZ 平面上移動（除非我們明確要允許 Y 軸移動）
+            if (event.value) {
+                // 如果開始拖曳，限制 Y 軸移動
+                transformControls.showY = false;
+            } else {
+                // 如果結束拖曳，恢復 Y 軸顯示，但由於我們設置了 setMode('translate')，它會保持 XZ 顯示
+                transformControls.showY = true;
+            }
+        });
+        
+        // 由於我們只希望地面在 XZ 平面移動，我們可以限制 Y 軸的控制
+        transformControls.showY = false;
 
-        // --- 4. 實現地面拖曳 ---
+
+        // --- 4. 點擊選中邏輯 ---
         const raycaster = new THREE.Raycaster();
         const pointer = new THREE.Vector2();
-        let isDragging = false;
-        let selectedObject = null;
-        let plane = new THREE.Plane();
-        let intersectPoint = new THREE.Vector3();
-        let offset = new THREE.Vector3();
-        
-        // 由於地面現在是一個Box，拖曳平面應該是地面的頂部或底部所在的平面。
-        const GROUND_Y_LEVEL = ground.position.y; 
 
         // 處理滑鼠/手指按下事件
         function onPointerDown(event) {
-            event.preventDefault();
-
-            // 獲取標準化裝置坐標 (從 -1 到 +1)
+            // 如果 TransformControls 已經被啟用，並且我們點擊了它的軸，則跳過以下邏輯
+            if (transformControls.dragging) return;
+            
+            // 獲取標準化裝置坐標
             pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
             pointer.y = - (event.clientY / window.innerHeight) * 2 + 1;
 
@@ -80,64 +99,40 @@
 
             if (intersects.length > 0 && intersects[0].object.name === 'Ground') {
                 // 點擊到地面
-                isDragging = true;
-                selectedObject = intersects[0].object;
-                controls.enabled = false; // 禁用空間旋轉控制
+                
+                // 啟用並顯示軸向控制器
+                transformControls.visible = true;
+                transformControls.enabled = true;
+                
+                // 禁用空間旋轉控制，讓軸向控制工具工作
+                controls.enabled = false; 
 
-                // 設置拖曳平面：以世界空間的 Y 軸為法線，經過地面的中心點
-                plane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0), selectedObject.position);
+                // 為了避免點擊後控制器立即開始拖曳，我們在 TransformControls 的 'dragging-changed' 事件中處理控制器的啟用/禁用。
                 
-                // 計算射線與該拖曳平面的交點
-                raycaster.ray.intersectPlane(plane, intersectPoint);
-                
-                // 計算滑鼠點擊位置與物體中心位置的偏移量 (用於精確拖曳)
-                offset.copy(selectedObject.position).sub(intersectPoint);
             } else {
-                // 沒有點擊到地面 (啟用空間旋轉)
+                // 沒有點擊到地面
+                
+                // 隱藏並禁用軸向控制器
+                transformControls.visible = false;
+                transformControls.enabled = false;
+                
+                // 啟用空間旋轉控制
                 controls.enabled = true;
             }
         }
 
-        // 處理滑鼠/手指移動事件
-        function onPointerMove(event) {
-            event.preventDefault();
+        // 這裡我們不再需要 `onPointerMove` 和 `onPointerUp` 來手動拖曳地面，
+        // 因為所有的拖曳動作都由 `THREE.TransformControls` 內部處理了！
 
-            if (!isDragging || !selectedObject) return;
-
-            pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
-            pointer.y = - (event.clientY / window.innerHeight) * 2 + 1;
-
-            raycaster.setFromCamera(pointer, camera);
-
-            // 獲取新的平面交點
-            if (raycaster.ray.intersectPlane(plane, intersectPoint)) {
-                // 將地面移動到新的交點位置，並加上偏移量
-                // 我們只更新 X 和 Z 軸，保持 Y 軸高度不變，確保地面只在水平方向移動
-                selectedObject.position.x = intersectPoint.x + offset.x;
-                selectedObject.position.z = intersectPoint.z + offset.z;
-            }
-        }
-
-        // 處理滑鼠/手指釋放事件
-        function onPointerUp(event) {
-            if (isDragging) {
-                isDragging = false;
-                selectedObject = null;
-            }
-            controls.enabled = true;
-        }
-        
-        // 確保同時支持滑鼠和觸摸
+        // 監聽事件
         renderer.domElement.addEventListener('pointerdown', onPointerDown);
-        renderer.domElement.addEventListener('pointermove', onPointerMove);
-        renderer.domElement.addEventListener('pointerup', onPointerUp);
-        renderer.domElement.addEventListener('pointerleave', onPointerUp); // 滑鼠離開畫布也視為釋放
 
         // --- 5. 渲染迴圈 ---
         function animate() {
             requestAnimationFrame(animate);
 
-            controls.update(); // 必須呼叫，以更新阻尼和旋轉狀態
+            controls.update(); // 更新 OrbitControls 阻尼
+            transformControls.update(); // 更新 TransformControls 的位置和大小
             renderer.render(scene, camera);
         }
 
