@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D 地面操作與軸向消失 (最終邏輯)</title>
+    <title>3D 地面操作與軸向消失 (最終強制邏輯)</title>
     <style>
         body { margin: 0; overflow: hidden; }
         canvas { display: block; }
@@ -107,15 +107,37 @@
             pointer.y = - (event.clientY / window.innerHeight) * 2 + 1;
         }
 
+        function clearSelection() {
+            if (isGroundSelected) {
+                // 軸向消失
+                transformControls.visible = false;
+                transformControls.enabled = false;
+                isGroundSelected = false; 
+                
+                // 禁用 OrbitControls，確保這次操作是取消選取，而不是旋轉
+                controls.enabled = false; 
+            }
+        }
+        
+        function selectGround() {
+            if (!isGroundSelected) {
+                // 選中地面並顯示軸向
+                isGroundSelected = true;
+                transformControls.visible = true;
+                transformControls.enabled = true;
+            }
+             // 選中後，OrbitControls 必須保持啟用，除非 Gizmo 在拖曳
+            controls.enabled = true;
+        }
+
         // 處理滑鼠/手指按下事件
         function onPointerDown(event) {
             getNormalizedPointer(event);
             raycaster.setFromCamera(pointer, camera);
 
             // 1. 檢查是否點擊到 Gizmo 軸向
-            let intersectsGizmo = [];
             if (isGroundSelected) {
-                intersectsGizmo = raycaster.intersectObjects(transformControls.children, true);
+                const intersectsGizmo = raycaster.intersectObjects(transformControls.children, true);
                 
                 if (intersectsGizmo.length > 0) {
                     // 點擊到 Gizmo 的軸，交由 TransformControls 處理
@@ -129,46 +151,22 @@
             if (intersectsGround.length > 0 && intersectsGround[0].object.name === 'Ground') {
                 // A. 點擊到地面
                 
-                if (!isGroundSelected) {
-                    // 如果目前未選中，則選中地面並顯示軸向
-                    isGroundSelected = true;
-                    transformControls.visible = true;
-                    transformControls.enabled = true;
-                } else {
-                    // 如果已經選中 (軸向已顯示)，但**沒有**點擊到 Gizmo 軸，
-                    // 則視為取消選取操作，因為您希望點擊地面本身也不要保持選中狀態。
-                    
-                    // 軸向消失 (取消選取)
-                    transformControls.visible = false;
-                    transformControls.enabled = false;
-                    isGroundSelected = false; 
-                    
-                    // 暫時禁用 OrbitControls，確保這次點擊不是旋轉，而是「取消選取」
-                    controls.enabled = false; 
-                }
-                
-                // 無論是選中還是取消選中，都必須在當前步驟結束後將 controls 設置為下一步的狀態
                 if (isGroundSelected) {
-                    // 如果最終狀態是選中 (剛選中)，則允許旋轉
-                    controls.enabled = true;
+                    // **強制取消選取：如果已經選中，點擊地面本身也算取消**
+                    clearSelection();
+                } else {
+                    // 如果目前未選中，則選中
+                    selectGround();
                 }
 
             } else {
                 // B. 點擊到非地面區域
                 
                 if (isGroundSelected) {
-                    // **核心要求實現：軸向顯示時，按下非地面區域，軸向必須消失**
-                    
-                    // 軸向消失
-                    transformControls.visible = false;
-                    transformControls.enabled = false;
-                    isGroundSelected = false; 
-                    
-                    // 暫時禁用 OrbitControls，確保這次點擊不是旋轉，而是「取消選取」
-                    controls.enabled = false; 
-
+                    // **核心要求：軸向顯示時，按下非地面區域，軸向必須消失**
+                    clearSelection();
                 } else {
-                    // 如果原本就沒有選中任何東西 (軸向未顯示)，則啟用空間旋轉
+                    // 如果原本就沒有選中任何東西，則啟用空間旋轉
                     controls.enabled = true;
                 }
             }
@@ -177,7 +175,6 @@
         // 處理滑鼠/手指釋放事件
         function onPointerUp(event) {
             // 只有當物體未被選中且 Gizmo 未在拖曳時，才重新啟用 OrbitControls
-            // 這恢復了「按下非地面取消選取後」的旋轉功能
             if (!isGroundSelected && !transformControls.dragging) {
                 controls.enabled = true;
             }
