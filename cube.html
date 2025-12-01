@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D 地面操作與空間旋轉 (共存模式 - 最終確認)</title>
+    <title>3D 地面操作與軸向消失 (優先取消選取)</title>
     <style>
         body { margin: 0; overflow: hidden; }
         canvas { display: block; }
@@ -92,8 +92,10 @@
 
         let isGroundSelected = false; // 地面是否被選中
         
-        // **核心：當拖曳 Gizmo 軸向時，暫時禁用 OrbitControls。否則 OrbitControls 永遠啟用。**
+        // 監聽 TransformControls 的拖曳事件：
         transformControls.addEventListener('dragging-changed', function (event) {
+            // **只有在拖曳 Gizmo 軸向時，才暫時禁用 OrbitControls。**
+            // 否則，保持 controls.enabled 狀態 (這保證了軸向顯示時，在非軸向區域可以旋轉)
             controls.enabled = !event.value;
         });
         
@@ -117,6 +119,7 @@
                 
                 if (intersectsGizmo.length > 0) {
                     // 點擊到 Gizmo 的軸，交由 TransformControls 處理
+                    // controls.enabled 會在 dragging-changed 事件中被臨時禁用
                     return; 
                 }
             }
@@ -135,28 +138,35 @@
                     transformControls.enabled = true;
                 }
                 
-                // 即使選中地面，也保持 controls.enabled = true
+                // 軸向顯示時，保持 controls.enabled = true (允許旋轉)
                 controls.enabled = true; 
 
             } else {
-                // B. 點擊到非地面區域
+                // B. 點擊到非地面/非 Gizmo 軸區域
                 
                 if (isGroundSelected) {
+                    // **核心修正：軸向顯示時，按下非 Gizmo/非地面區域，立即執行取消選取**
+                    
                     // 軸向消失
                     transformControls.visible = false;
                     transformControls.enabled = false;
                     isGroundSelected = false; 
+                    
+                    // **重要：暫時禁用 OrbitControls** (確保這次操作是取消選取，而不是旋轉)
+                    controls.enabled = false; 
+
+                } else {
+                    // 如果原本就沒有選中任何東西，則啟用空間旋轉
+                    controls.enabled = true;
                 }
-                
-                // 保持 controls.enabled = true
-                controls.enabled = true;
             }
         }
         
         // 處理滑鼠/手指釋放事件
         function onPointerUp(event) {
-            // 確保 OrbitControls 在 Gizmo 拖曳結束後是啟用的
-            if (!transformControls.dragging) {
+            // 只有當物體未被選中且 Gizmo 未在拖曳時，才重新啟用 OrbitControls
+            // 這恢復了「按下非地面取消選取後」的旋轉功能
+            if (!isGroundSelected && !transformControls.dragging) {
                 controls.enabled = true;
             }
         }
