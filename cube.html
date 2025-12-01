@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D 地面拖曳與空間旋轉</title>
+    <style>
+        body { margin: 0; overflow: hidden; } /* 移除邊距和捲軸 */
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+    <script>
+        // --- 1. 場景初始化 ---
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // 設置光線
+        const ambientLight = new THREE.AmbientLight(0x606060);
+        scene.add(ambientLight);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(1, 1, 1).normalize();
+        scene.add(directionalLight);
+
+        // --- 2. 創建地面 (矩形扁平) ---
+        const groundGeometry = new THREE.PlaneGeometry(100, 100);
+        const groundMaterial = new THREE.MeshLambertMaterial({ color: 0x888888, side: THREE.DoubleSide });
+        const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+        
+        // 旋轉地面使其平躺在 XZ 平面上
+        ground.rotation.x = -Math.PI / 2;
+        ground.name = 'Ground'; // 給地面命名以便於識別
+        scene.add(ground);
+
+        // 初始化相機位置
+        camera.position.set(20, 10, 20);
+
+        // --- 3. 實現空間旋轉 (使用 OrbitControls) ---
+        // OrbitControls 預設是旋轉相機環繞目標，實現了您要求的 "旋轉 3D 空間" 效果。
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true; // 啟用阻尼效果，讓旋轉更流暢
+        controls.dampingFactor = 0.05;
+
+        // 預設啟用：按下任何地方不放，拖曳就能旋轉空間。
+        // controls.mouseButtons 預設就是左鍵軌道控制 (旋轉)。
+        // 為了讓它也能響應觸摸，我們不需要額外設定，OrbitControls 已經處理了。
+
+        // --- 4. 實現地面拖曳 ---
+        const raycaster = new THREE.Raycaster();
+        const pointer = new THREE.Vector2();
+        let isDragging = false;
+        let selectedObject = null;
+        let plane = new THREE.Plane();
+        let intersectPoint = new THREE.Vector3();
+        let offset = new THREE.Vector3();
+
+        // 處理滑鼠/手指按下事件
+        function onPointerDown(event) {
+            event.preventDefault();
+
+            // 獲取標準化裝置坐標 (從 -1 到 +1)
+            pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
+            pointer.y = - (event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(pointer, camera);
+
+            // 檢查是否點擊到地面
+            const intersects = raycaster.intersectObjects([ground]);
+
+            if (intersects.length > 0 && intersects[0].object.name === 'Ground') {
+                // 點擊到地面
+                isDragging = true;
+                selectedObject = intersects[0].object;
+                controls.enabled = false; // 禁用空間旋轉控制
+
+                // 設置拖曳平面
+                intersects[0].point.sub(camera.position).normalize();
+                
+                // 設置拖曳平面為地面的 Y 軸 (世界空間的 Y=0 平面)
+                plane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0), selectedObject.position);
+
+                // 計算交點
+                raycaster.ray.intersectPlane(plane, intersectPoint);
+                
+                // 計算滑鼠點擊位置與物體中心位置的偏移量
+                offset.copy(selectedObject.position).sub(intersectPoint);
+            } else {
+                // 沒有點擊到地面 (啟用空間旋轉，這是 OrbitControls 預設行為)
+                controls.enabled = true;
+            }
+        }
+
+        // 處理滑鼠/手指移動事件
+        function onPointerMove(event) {
+            event.preventDefault();
+
+            if (!isDragging || !selectedObject) return;
+
+            pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
+            pointer.y = - (event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(pointer, camera);
+
+            // 獲取新的平面交點
+            if (raycaster.ray.intersectPlane(plane, intersectPoint)) {
+                // 將地面移動到新的交點位置，並加上偏移量
+                selectedObject.position.copy(intersectPoint).add(offset);
+            }
+        }
+
+        // 處理滑鼠/手指釋放事件
+        function onPointerUp(event) {
+            if (isDragging) {
+                isDragging = false;
+                selectedObject = null;
+                // 在拖曳結束時重新啟用空間旋轉，以防萬一（雖然通常在 onPointerDown 中已經處理）
+            }
+            controls.enabled = true;
+        }
+        
+        // 確保同時支持滑鼠和觸摸
+        renderer.domElement.addEventListener('pointerdown', onPointerDown);
+        renderer.domElement.addEventListener('pointermove', onPointerMove);
+        renderer.domElement.addEventListener('pointerup', onPointerUp);
+        renderer.domElement.addEventListener('pointerleave', onPointerUp); // 滑鼠離開畫布也視為釋放
+
+        // --- 5. 渲染迴圈 ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            controls.update(); // 必須呼叫，以更新阻尼和旋轉狀態
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        // --- 6. 響應式調整 ---
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
