@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D 地面拖曳與空間旋轉</title>
+    <title>3D 地面拖曳與空間旋轉 (有厚度)</title>
     <style>
         body { margin: 0; overflow: hidden; } /* 移除邊距和捲軸 */
         canvas { display: block; }
@@ -29,13 +29,17 @@
         directionalLight.position.set(1, 1, 1).normalize();
         scene.add(directionalLight);
 
-        // --- 2. 創建地面 (矩形扁平) ---
-        const groundGeometry = new THREE.PlaneGeometry(100, 100);
-        const groundMaterial = new THREE.MeshLambertMaterial({ color: 0x888888, side: THREE.DoubleSide });
+        // --- 2. 創建地面 (使用 BoxGeometry 來創建帶有厚度的地面) ---
+        const groundWidth = 100;
+        const groundHeight = 0.5; // <-- 地面的厚度，設定為 0.5
+        const groundDepth = 100;
+        
+        const groundGeometry = new THREE.BoxGeometry(groundWidth, groundHeight, groundDepth);
+        const groundMaterial = new THREE.MeshLambertMaterial({ color: 0x888888 });
         const ground = new THREE.Mesh(groundGeometry, groundMaterial);
         
-        // 旋轉地面使其平躺在 XZ 平面上
-        ground.rotation.x = -Math.PI / 2;
+        // 確保地面中心位於世界座標的 Y=0 軸上，使其看起來是“坐在”地平線上
+        ground.position.y = 0; // 當中心在 Y=0 時，厚度為 0.5 的地面將從 Y=-0.25 到 Y=0.25
         ground.name = 'Ground'; // 給地面命名以便於識別
         scene.add(ground);
 
@@ -43,14 +47,11 @@
         camera.position.set(20, 10, 20);
 
         // --- 3. 實現空間旋轉 (使用 OrbitControls) ---
-        // OrbitControls 預設是旋轉相機環繞目標，實現了您要求的 "旋轉 3D 空間" 效果。
         const controls = new THREE.OrbitControls(camera, renderer.domElement);
-        controls.enableDamping = true; // 啟用阻尼效果，讓旋轉更流暢
+        controls.enableDamping = true; 
         controls.dampingFactor = 0.05;
-
-        // 預設啟用：按下任何地方不放，拖曳就能旋轉空間。
-        // controls.mouseButtons 預設就是左鍵軌道控制 (旋轉)。
-        // 為了讓它也能響應觸摸，我們不需要額外設定，OrbitControls 已經處理了。
+        // 允許相機在水平上移動 (平移)，這樣拖曳地面時不會與相機控制衝突
+        controls.screenSpacePanning = true; 
 
         // --- 4. 實現地面拖曳 ---
         const raycaster = new THREE.Raycaster();
@@ -60,6 +61,9 @@
         let plane = new THREE.Plane();
         let intersectPoint = new THREE.Vector3();
         let offset = new THREE.Vector3();
+        
+        // 由於地面現在是一個Box，拖曳平面應該是地面的頂部或底部所在的平面。
+        const GROUND_Y_LEVEL = ground.position.y; 
 
         // 處理滑鼠/手指按下事件
         function onPointerDown(event) {
@@ -80,19 +84,16 @@
                 selectedObject = intersects[0].object;
                 controls.enabled = false; // 禁用空間旋轉控制
 
-                // 設置拖曳平面
-                intersects[0].point.sub(camera.position).normalize();
-                
-                // 設置拖曳平面為地面的 Y 軸 (世界空間的 Y=0 平面)
+                // 設置拖曳平面：以世界空間的 Y 軸為法線，經過地面的中心點
                 plane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0), selectedObject.position);
-
-                // 計算交點
+                
+                // 計算射線與該拖曳平面的交點
                 raycaster.ray.intersectPlane(plane, intersectPoint);
                 
-                // 計算滑鼠點擊位置與物體中心位置的偏移量
+                // 計算滑鼠點擊位置與物體中心位置的偏移量 (用於精確拖曳)
                 offset.copy(selectedObject.position).sub(intersectPoint);
             } else {
-                // 沒有點擊到地面 (啟用空間旋轉，這是 OrbitControls 預設行為)
+                // 沒有點擊到地面 (啟用空間旋轉)
                 controls.enabled = true;
             }
         }
@@ -111,7 +112,9 @@
             // 獲取新的平面交點
             if (raycaster.ray.intersectPlane(plane, intersectPoint)) {
                 // 將地面移動到新的交點位置，並加上偏移量
-                selectedObject.position.copy(intersectPoint).add(offset);
+                // 我們只更新 X 和 Z 軸，保持 Y 軸高度不變，確保地面只在水平方向移動
+                selectedObject.position.x = intersectPoint.x + offset.x;
+                selectedObject.position.z = intersectPoint.z + offset.z;
             }
         }
 
@@ -120,7 +123,6 @@
             if (isDragging) {
                 isDragging = false;
                 selectedObject = null;
-                // 在拖曳結束時重新啟用空間旋轉，以防萬一（雖然通常在 onPointerDown 中已經處理）
             }
             controls.enabled = true;
         }
