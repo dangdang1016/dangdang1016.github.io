@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>邏輯閘無限平面 - 觸控支援</title>
+    <style>
+        /* 預設為淺色模式 (當不加 .dark 類時) */
+        :root {
+            --bg: #ffffff;
+            --canvas: #f8f8f8; 
+            --grid-minor: #e0e0e0;
+            --grid-major: #aaaaaa;
+            --gate: #222222; 
+            --btn: #007bff;
+            --btn-text: #ffffff;
+            --text: #1e1e1e;
+            --light-off: #aaaaaa; 
+            --light-on: #ffc107;  
+            --light-border: #222222; 
+            --wire: #000000; 
+            --wire-on: #ff0000; 
+            --switch-off: #cccccc; 
+            --switch-on: #4CAF50; 
+        }
+        /* 深色模式變數 */
+        .dark {
+            --bg: #1e1e1e;
+            --canvas: #111111;
+            --grid-minor: #555555; 
+            --grid-major: #999999; 
+            --gate: #ffffff; 
+            --btn: #007bff;
+            --btn-text: #ffffff;
+            --text: #ffffff;
+            --light-off: #555555; 
+            --light-on: #ffeb3b;  
+            --light-border: #ffffff; 
+            --wire: #ffffff; 
+            --wire-on: #ff0000; 
+            --switch-off: #555555; 
+            --switch-on: #4CAF50; 
+        }
+        body { 
+            margin:0; 
+            overflow:hidden; 
+            background:var(--bg); 
+            font-family:system-ui,Arial; 
+            color:var(--text); 
+            /* 禁用 iOS 上的點擊高亮 */
+            -webkit-tap-highlight-color: transparent;
+        }
+        canvas { display:block; background:var(--canvas); cursor:grab; }
+        canvas.dragging { cursor:grabbing; }
+        canvas.gate-hover { cursor: pointer; } 
+        canvas.pin-drag { cursor: crosshair; } 
+        canvas.switch-hover { cursor: pointer; } 
+
+        #controls { position:absolute; top:15px; left:15px; z-index:100; display:flex; gap:12px; }
+        button { 
+            padding:10px 18px; 
+            background:var(--btn); 
+            color:var(--btn-text); 
+            border:none; 
+            border-radius:8px; 
+            cursor:pointer; 
+            font-size:14px; 
+            box-shadow:0 2px 6px rgba(0,0,0,0.3); 
+        }
+        /* 通用選單樣式 */
+        .context-menu {
+            position:absolute; display:none; 
+            background:var(--bg); 
+            border:1px solid var(--grid-major); 
+            border-radius:8px;
+            box-shadow:0 10px 30px rgba(0,0,0,0.4); 
+            padding:6px 0; min-width:110px; z-index:9999;
+        }
+        .mi { 
+            padding:11px 22px; 
+            cursor:pointer; 
+            font-size:14px; 
+            color:var(--text); 
+            list-style: none; /* 移除數字 */
+        }
+        .mi:hover { background:#007bff44; }
+    </style>
+</head>
+<body class=""> 
+
+<div id="controls">
+    <button id="darkBtn">深色模式</button> 
+    <button id="gridBtn">關閉網格</button>
+</div>
+
+<div id="newGateMenu" class="context-menu">
+    <div class="mi" data-g="not">NOT</div>
+    <div class="mi" data-g="and">AND</div>
+    <div class="mi" data-g="or">OR</div>
+    <div class="mi" data-g="nand">NAND</div>
+    <div class="mi" data-g="nor">NOR</div>
+    <div class="mi" data-g="xor">XOR</div>
+    <div class="mi" data-g="xnor">XNOR</div>
+    <hr>
+    <div class="mi" data-g="light">燈</div>
+    <hr>
+    <div class="mi" data-g="switch">開關</div>
+</div>
+
+<div id="gateMenu" class="context-menu">
+    <div class="mi" data-action="split">分割</div>
+    <div class="mi" data-action="delete">刪除</div>
+</div>
+
+<canvas id="c"></canvas>
+
+<script>
+    const canvas = document.getElementById('c');
+    const ctx = canvas.getContext('2d');
+    const body = document.body;
+    const darkBtn = document.getElementById('darkBtn');
+    const newGateMenu = document.getElementById('newGateMenu');
+    const gateMenu = document.getElementById('gateMenu');
+
+    let offsetX = 0, offsetY = 0;
+    let dragging = false, showGrid = true;
+    let lastX, lastY;
+    
+    let isGateDragging = false;
+    let draggedGate = null;
+    let dragStartOffset = { x: 0, y: 0 };
+    let dragStartX = 0, dragStartY = 0; 
+
+    let isPinDragging = false; 
+    let draggedPin = null;     
+    let isDraggingFromInput = false; 
+    let tempWire = null;       
+    let clickedGateIdForMenu = null; 
+    
+    // 觸控相關變數
+    let longPressTimer = null;
+    const LONG_PRESS_DURATION = 500; // 500ms 長按觸發
+    const TOUCH_MOVE_TOLERANCE = 10; // 10px 移動即取消長按
+    let touchStartClientX = 0;
+    let touchStartClientY = 0;
+
+    const PIN_CLICK_TOLERANCE = 8; 
+    const CLICK_TICK_TOLERANCE = 5; 
+    const WIRE_CLICK_TOLERANCE = 5; 
+    
+    const gates = [];
+    const wires = []; 
+    const GRID = 50;
+    const MAJOR = 5;
+    const PIN_LENGTH = 15; 
+    
+    let nextGateId = 1; 
+
+    function resize() {
+        canvas.width = innerWidth;
+        canvas.height = innerHeight; 
+        updateLogicStates();
+        draw();
+    }
+    window.onresize = resize;
+    resize();
+
+    // ------------------------------------------------------------------
+    // 💡 核心邏輯模擬函數 (未變動)
+    // ------------------------------------------------------------------
+
+    function calculateGateOutput(gate) {
+        if (gate.type === 'switch' || gate.type === 'light') return 0; 
+        
+        const inputValues = [];
+        const numInputs = gate.type === 'not' ? 1 : 2;
+
+        for (let i = 0; i < numInputs; i++) {
+            const connectedWire = wires.find(w => 
+                w.targetGateId === gate.id && w.targetPinIndex === i
+            );
+            let inputValue = 0; 
+            if (connectedWire) {
+                const sourceGate = gates.find(g => g.id === connectedWire.sourceGateId);
+                if (sourceGate) {
+                    inputValue = sourceGate.type === 'switch' ? sourceGate.value : sourceGate.output;
+                }
+            }
+            inputValues.push(inputValue);
+        }
+        
+        const A = inputValues[0];
+        const B = inputValues[1];
+        let output = 0;
+
+        switch (gate.type) {
+            case 'not': output = 1 - A; break;
+            case 'and': output = A & B; break;
+            case 'or':  output = A | B; break;
+            case 'nand': output = 1 - (A & B); break;
+            case 'nor': output = 1 - (A | B); break;
+            case 'xor': output = A ^ B; break;
+            case 'xnor': output = 1 - (A ^ B); break;
+        }
+        return output;
+    }
+
+    function updateLogicStates() {
+        gates.forEach(g => {
+             g.output = g.type === 'switch' ? g.value : calculateGateOutput(g);
+        });
+
+        gates.forEach(g => {
+             if (g.type === 'light') {
+                g.value = 0; 
+                const activeWire = wires.find(w => {
+                    if (w.targetGateId === g.id) {
+                        const sourceGate = gates.find(sg => sg.id === w.sourceGateId);
+                        return sourceGate && sourceGate.output === 1;
+                    }
+                    return false;
+                });
+                if (activeWire) { g.value = 1; }
+            }
+        });
+    }
+    
+    // ------------------------------------------------------------------
+    // 📌 座標計算、繪圖函數、輔助函數 (未變動)
+    // ------------------------------------------------------------------
+
+    function calculatePinPositions(g) {
+        const pinDefs = { input: [], output: [] };
+        const invR = 6;
+        const OR_OUT_X = 30;
+        const AND_OUT_X = 30;
+        const NOT_OUT_X = 18;
+        let inputPinCoords = [];
+        let outputPinCoord = null;
+        let pinDir = 0; 
+
+        switch (g.type) {
+            case 'switch': 
+                outputPinCoord = { x: 20, y: 0, index: 0 };
+                break;
+            case 'light':
+                const bulbR = 25;
+                const socketH = 15;
+                inputPinCoords = [{ x: 0, y: bulbR + socketH/2 + PIN_LENGTH, index: 0 }]; 
+                pinDir = 1; 
+                break;
+            case 'not':
+                inputPinCoords = [{ x: -25, y: 0, index: 0 }];
+                outputPinCoord = { x: NOT_OUT_X + 2 * invR, y: 0, index: 0 };
+                break;
+            case 'and':
+            case 'nand':
+                inputPinCoords = [{ x: -30, y: -15, index: 0 }, { x: -30, y: 15, index: 1 }];
+                outputPinCoord = { 
+                    x: g.type === 'nand' ? AND_OUT_X + 2 * invR : AND_OUT_X, 
+                    y: 0, 
+                    index: 0 
+                };
+                break;
+            case 'or':
+            case 'nor':
+            case 'xor':
+            case 'xnor':
+                const isXOR = g.type === 'xor' || g.type === 'xnor';
+                const inputX = isXOR ? -44 : -38;
+                inputPinCoords = [{ x: inputX, y: -20, index: 0 }, { x: inputX, y: 20, index: 1 }];
+
+                outputPinCoord = { 
+                    x: g.type === 'nor' || g.type === 'xnor' ? OR_OUT_X + 2 * invR : OR_OUT_X, 
+                    y: 0, 
+                    index: 0 
+                };
+                break;
+        }
+
+        inputPinCoords.forEach(pin => {
+            pinDefs.input.push({
+                x: g.x + pin.x, y: g.y + pin.y, gate: g, index: pin.index, type: 'input', dir: pinDir 
+            });
+        });
+
+        if (outputPinCoord) {
+            pinDefs.output.push({
+                x: g.x + outputPinCoord.x, y: g.y + outputPinCoord.y, gate: g, index: outputPinCoord.index, type: 'output', dir: 0 
+            });
+        }
+        return pinDefs;
+    }
+
+    function calculatePin(gateId, pinType, pinIndex) {
+        const gate = gates.find(g => g.id === gateId);
+        if (!gate) return null;
+        const pins = calculatePinPositions(gate);
+        return pins[pinType] ? pins[pinType].find(p => p.index === pinIndex) : null;
+    }
+    
+    function getAllPins() {
+        const allPins = [];
+        gates.forEach(g => {
+            const pins = calculatePinPositions(g);
+            allPins.push(...pins.input);
+            allPins.push(...pins.output);
+        });
+        return allPins;
+    }
+
+    function drawGate(g, ix, iy) {
+        ctx.save();
+        ctx.translate(g.x + ix, g.y + iy);
+        ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--gate').trim();
+        ctx.lineWidth = 2.2; 
+        const pins = calculatePinPositions(g);
+        const invR = 6;
+        const OR_OUT_X = 30; 
+        const AND_OUT_X = 30; 
+        const NOT_OUT_X = 18; 
+        const ADJUSTMENT = ctx.lineWidth / 2; 
+
+        if (g.type === 'switch') {
+             // 繪製開關邏輯 (略)
+            const size = 30;
+            const halfSize = size / 2;
+            const outputPin = pins.output[0];
+
+            ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue(g.value ? '--switch-on' : '--switch-off').trim();
+            ctx.fillRect(-halfSize, -halfSize, size, size);
+            ctx.strokeRect(-halfSize, -halfSize, size, size);
+
+            ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--btn-text').trim();
+            ctx.font = 'bold 14px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(g.value ? 'ON' : 'OFF', 0, 0);
+
+            ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--gate').trim();
+            ctx.beginPath();
+            ctx.moveTo(halfSize, 0);
+            ctx.lineTo(outputPin.x - g.x, outputPin.y - g.y);
+            ctx.lineTo(outputPin.x - g.x + PIN_LENGTH, outputPin.y - g.y);
+            ctx.stroke();
+
+        } else if (g.type === 'light') {
+            // 繪製燈泡邏輯 (略)
+            const bulbR = 25;
+            const socketW = 10;
+            const socketH = 15;
+            const inputPin = pins.input[0];
+            
+            ctx.beginPath();
+            ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue(g.value ? '--light-on' : '--light-off').trim();
+            ctx.arc(0, -socketH/2, bulbR, 0, Math.PI*2);
+            ctx.fill();
+            
+            ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--light-border').trim();
+            ctx.fillRect(-socketW / 2, bulbR - socketH/2, socketW, socketH);
+            
+            ctx.strokeStyle = ctx.fillStyle; 
+            ctx.beginPath();
+            ctx.moveTo(0, bulbR + socketH/2);
+            ctx.lineTo(inputPin.x - g.x, inputPin.y - g.y); 
+            ctx.stroke();
+        } else {
+             // 繪製邏輯閘本體 (略)
+             switch(g.type) {
+                case 'not':
+                    ctx.beginPath();
+                    ctx.moveTo(-25, -18); ctx.lineTo(NOT_OUT_X, 0); ctx.lineTo(-25, 18);
+                    ctx.closePath(); ctx.stroke();
+                    ctx.beginPath(); ctx.arc(NOT_OUT_X + invR, 0, invR, 0, Math.PI*2); ctx.stroke();
+                    break;
+                case 'and':
+                case 'nand':
+                    ctx.beginPath();
+                    ctx.moveTo(-30, -30); ctx.lineTo(0, -30);
+                    ctx.arcTo(AND_OUT_X, -30, AND_OUT_X, 0, AND_OUT_X);
+                    ctx.arcTo(AND_OUT_X, AND_OUT_X, 0, AND_OUT_X, AND_OUT_X);
+                    ctx.lineTo(-30, 30); ctx.closePath(); ctx.stroke();
+                    if (g.type === 'nand') {
+                        ctx.beginPath(); ctx.arc(AND_OUT_X + invR, 0, invR, 0, Math.PI*2); ctx.stroke();
+                    }
+                    break;
+                case 'or':
+                case 'nor':
+                case 'xor':
+                case 'xnor':
+                    const isXOR = g.type === 'xor' || g.type === 'xnor';
+                    const inputX = isXOR ? -44 : -38;
+                    ctx.beginPath();
+                    ctx.moveTo(-15, -40);
+                    ctx.quadraticCurveTo(-38, -20, -38, 0); 
+                    ctx.quadraticCurveTo(-38, 20, -15, 40); 
+                    ctx.quadraticCurveTo(OR_OUT_X - 10, 20, OR_OUT_X, 0); 
+                    ctx.quadraticCurveTo(OR_OUT_X - 10, -20, -15, -40); 
+                    ctx.closePath(); ctx.stroke();
+                    
+                    if (g.type === 'xor' || g.type === 'xnor') {
+                        ctx.beginPath();
+                        ctx.moveTo(-21, -40);
+                        ctx.quadraticCurveTo(-44, -20, -44, 0); 
+                        ctx.quadraticCurveTo(-44, 20, -21, 40); 
+                        ctx.stroke();
+                    }
+                    if (g.type === 'nor' || g.type === 'xnor') {
+                        ctx.beginPath(); ctx.arc(OR_OUT_X + invR, 0, invR, 0, Math.PI*2); ctx.stroke();
+                    }
+                    break;
+            }
+             // 繪製 Pin (略)
+            ctx.beginPath();
+            pins.input.forEach(pin => {
+                const pinX = pin.x - g.x;
+                const pinY = pin.y - g.y;
+                ctx.moveTo(pinX + ADJUSTMENT, pinY);
+                ctx.lineTo(pinX - PIN_LENGTH, pinY);
+            });
+            if (pins.output.length > 0) { 
+                const pin = pins.output[0];
+                const pinX = pin.x - g.x;
+                const pinY = pin.y - g.y;
+                ctx.moveTo(pinX, pinY);
+                ctx.lineTo(pinX + PIN_LENGTH, pinY);
+            }
+            ctx.stroke();
+        }
+        
+        ctx.restore();
+    }
+    
+    function drawWire(wire, ix, iy) {
+        const sourceGate = gates.find(g => g.id === wire.sourceGateId);
+        const signalOn = sourceGate && sourceGate.output === 1;
+
+        ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue(signalOn ? '--wire-on' : '--wire').trim();
+        ctx.lineWidth = 3; 
+        ctx.lineCap = 'round';
+
+        ctx.beginPath();
+        
+        const startX = wire.start.x + ix;
+        const startY = wire.start.y + iy;
+        const endX = wire.end.x + ix;
+        const endY = wire.end.y + iy;
+
+        ctx.moveTo(startX, startY);
+        
+        if (wire.end.dir === 1 || wire.start.dir === 1) { 
+             const cornerY = Math.max(startY, endY) + 15; 
+             ctx.lineTo(startX, cornerY);
+             ctx.lineTo(endX, cornerY);
+        } else {
+             const midX = startX + (endX - startX) / 2;
+             ctx.lineTo(midX, startY);
+             ctx.lineTo(midX, endY);
+        }
+        ctx.lineTo(endX, endY);
+        ctx.stroke();
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // 繪製網格 (略)
+        if (showGrid) {
+            const ox = ((offsetX % GRID) + GRID) % GRID;
+            const oy = ((offsetY % GRID) + GRID) % GRID;
+            const majorColor = getComputedStyle(document.documentElement).getPropertyValue('--grid-major').trim();
+            const minorColor = getComputedStyle(document.documentElement).getPropertyValue('--grid-minor').trim();
+
+            ctx.strokeStyle = majorColor; ctx.lineWidth = 1.2;
+            for (let x = ox - GRID*MAJOR; x < canvas.width + GRID*MAJOR; x += GRID*MAJOR) {
+                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
+            }
+            for (let y = oy - GRID*MAJOR; y < canvas.height + GRID*MAJOR; y += GRID*MAJOR) {
+                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
+            }
+            ctx.strokeStyle = minorColor; ctx.lineWidth = 0.5;
+            for (let x = ox; x < canvas.width + GRID; x += GRID) {
+                if (Math.abs((x - ox) / GRID) % MAJOR !== 0) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke(); }
+            }
+            for (let y = oy; y < canvas.height + GRID; y += GRID) {
+                if (Math.abs((y - oy) / GRID) % MAJOR !== 0) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke(); }
+            }
+        }
+
+
+        const ix = Math.round(offsetX);
+        const iy = Math.round(offsetY);
+
+        wires.forEach(wire => {
+             const startPin = calculatePin(wire.sourceGateId, wire.sourcePinType, wire.sourcePinIndex);
+             const endPin = calculatePin(wire.targetGateId, wire.targetPinType, wire.targetPinIndex);
+            
+             if (startPin && endPin) {
+                 drawWire({ ...wire, start: startPin, end: endPin }, ix, iy);
+             }
+        });
+
+        for (const g of gates) {
+            drawGate(g, ix, iy);
+        }
+        
+        if (tempWire) {
+            drawWire(tempWire, ix, iy);
+        }
+    }
+    
+    function isPointInGate(worldX, worldY, gate) {
+        // 邏輯閘範圍判斷 (略)
+        if (gate.type === 'switch') {
+             const size = 35; 
+             const halfSize = size / 2;
+             return worldX >= gate.x - halfSize &&
+                    worldX <= gate.x + halfSize + PIN_LENGTH && 
+                    worldY >= gate.y - halfSize &&
+                    worldY <= gate.y + halfSize;
+        } else if (gate.type === 'light') {
+            const bulbR = 25;
+            const socketH = 15;
+            const centerY = gate.y - socketH/2; 
+            const distanceSq = (worldX - gate.x) ** 2 + (worldY - centerY) ** 2;
+            const radiusTolerance = bulbR + 10; 
+            return distanceSq <= radiusTolerance ** 2;
+
+        } else {
+            const halfWidth = 45 + PIN_LENGTH; 
+            const halfHeight = 45; 
+            return worldX >= gate.x - halfWidth &&
+                   worldX <= gate.x + halfWidth &&
+                   worldY >= gate.y - halfHeight &&
+                   worldY <= gate.y + halfHeight;
+        }
+    }
+    
+    function getGateAt(worldX, worldY) {
+        for (let i = gates.length - 1; i >= 0; i--) {
+            const g = gates[i];
+            if (isPointInGate(worldX, worldY, g)) {
+                return g;
+            }
+        }
+        return null;
+    }
+    
+    function getWireAt(worldX, worldY) {
+        // 線路點擊判斷 (略)
+        for (const wire of wires) {
+            const startPin = calculatePin(wire.sourceGateId, wire.sourcePinType, wire.sourcePinIndex);
+            const endPin = calculatePin(wire.targetGateId, wire.targetPinType, wire.targetPinIndex);
+
+            if (!startPin || !endPin) continue;
+
+            const startX = startPin.x;
+            const startY = startPin.y;
+            const endX = endPin.x;
+            const endY = endPin.y;
+            
+            const tol = WIRE_CLICK_TOLERANCE;
+            let midX, midY;
+
+            if (endPin.dir === 1 || startPin.dir === 1) { 
+                midY = Math.max(startY, endY) + 15; 
+                
+                if (worldX >= startX - tol && worldX <= startX + tol &&
+                    worldY >= Math.min(startY, midY) - tol && worldY <= Math.max(startY, midY) + tol) { return wire; }
+                if (worldY >= midY - tol && worldY <= midY + tol &&
+                    worldX >= Math.min(startX, endX) - tol && worldX <= Math.max(startX, endX) + tol) { return wire; }
+                if (worldX >= endX - tol && worldX <= endX + tol &&
+                    worldY >= Math.min(midY, endY) - tol && worldY <= Math.max(midY, endY) + tol) { return wire; }
+            } else {
+                midX = startX + (endX - startX) / 2;
+
+                if (worldY >= startY - tol && worldY <= startY + tol &&
+                    worldX >= Math.min(startX, midX) - tol && worldX <= Math.max(startX, midX) + tol) { return wire; }
+                if (worldX >= midX - tol && worldX <= midX + tol &&
+                    worldY >= Math.min(startY, endY) - tol && worldY <= Math.max(startY, endY) + tol) { return wire; }
+                if (worldY >= endY - tol && worldY <= endY + tol &&
+                    worldX >= Math.min(midX, endX) - tol && worldX <= Math.max(midX, endX) + tol) { return wire; }
+            }
+        }
+        return null;
+    }
+
+
+    function getPinAt(worldX, worldY) {
+        const allPins = getAllPins();
+        for (const pin of allPins) {
+            const dx = pin.x - worldX;
+            const dy = pin.y - worldY;
+            if (Math.sqrt(dx * dx + dy * dy) < PIN_CLICK_TOLERANCE) {
+                return pin;
+            }
+        }
+        return null;
+    }
+    
+    function hideMenus() {
+        if (longPressTimer) {
+             clearTimeout(longPressTimer);
+             longPressTimer = null;
+        }
+        newGateMenu.style.display = 'none';
+        gateMenu.style.display = 'none';
+        clickedGateIdForMenu = null;
+    }
+    
+    function deleteGate(gateId) {
+        const initialGateIndex = gates.findIndex(g => g.id === gateId);
+        if (initialGateIndex === -1) return;
+
+        wires.splice(0, wires.length, ...wires.filter(w => 
+            w.sourceGateId !== gateId && w.targetGateId !== gateId
+        ));
+
+        gates.splice(initialGateIndex, 1);
+
+        updateLogicStates();
+        draw();
+    }
+
+
+    // ------------------------------------------------------------------
+    // 🖱️ 滑鼠事件處理 (保持不變)
+    // ------------------------------------------------------------------
+
+    canvas.onmousedown = e => {
+        if (e.button !== 0) return; 
+        hideMenus();
+        
+        const worldX = e.clientX - Math.round(offsetX);
+        const worldY = e.clientY - Math.round(offsetY);
+        
+        if (e.altKey) { /* 移除導線邏輯 (略) */
+            const clickedWire = getWireAt(worldX, worldY);
+            if (clickedWire) {
+                const index = wires.indexOf(clickedWire);
+                if (index > -1) {
+                    wires.splice(index, 1);
+                    updateLogicStates();
+                    draw();
+                    return; 
+                }
+            }
+        }
+
+        dragStartX = worldX;
+        dragStartY = worldY;
+        
+        const clickedPin = getPinAt(worldX, worldY);
+        
+        if (clickedPin) { /* Pin 拖曳邏輯 (略) */
+            isPinDragging = true;
+            draggedPin = clickedPin;
+            canvas.classList.add('pin-drag');
+            canvas.classList.remove('dragging'); 
+            isDraggingFromInput = clickedPin.type === 'input';
+            
+            if (isDraggingFromInput) {
+                tempWire = {
+                    start: { x: worldX, y: worldY, dir: 0 }, end: { x: clickedPin.x, y: clickedPin.y, dir: clickedPin.dir },
+                    sourceGateId: null, targetGateId: clickedPin.gate.id, targetPinType: 'input', targetPinIndex: clickedPin.index
+                };
+            } else {
+                tempWire = {
+                    start: { x: clickedPin.x, y: clickedPin.y, dir: clickedPin.dir }, end: { x: worldX, y: worldY, dir: 0 }, 
+                    sourceGateId: clickedPin.gate.id, sourcePinType: 'output', sourcePinIndex: clickedPin.index
+                };
+            }
+            draw();
+            return;
+        }
+
+        draggedGate = getGateAt(worldX, worldY);
+        if (draggedGate) { /* Gate 拖曳邏輯 (略) */
+            isGateDragging = true;
+            dragStartOffset.x = worldX - draggedGate.x;
+            dragStartOffset.y = worldY - draggedGate.y;
+            const i = gates.indexOf(draggedGate);
+            gates.splice(i, 1);
+            gates.push(draggedGate);
+            canvas.classList.add('dragging'); 
+            canvas.classList.remove('gate-hover');
+            draw(); 
+            return;
+        }
+
+        isGateDragging = false;
+        isPinDragging = false;
+        dragging = true;
+        canvas.classList.add('dragging');
+        lastX = e.clientX;
+        lastY = e.clientY;
+    };
+
+    window.onmousemove = e => {
+        e.preventDefault();
+        const currentX = e.clientX;
+        const currentY = e.clientY;
+        const worldX = currentX - Math.round(offsetX);
+        const worldY = currentY - Math.round(offsetY);
+
+        if (isPinDragging && draggedPin) { /* Pin 拖曳更新邏輯 (略) */
+            const hoverPin = getPinAt(worldX, worldY);
+            let targetPinType = isDraggingFromInput ? 'output' : 'input';
+            
+            if (isDraggingFromInput) {
+                tempWire.start.x = worldX; tempWire.start.y = worldY;
+            } else {
+                tempWire.end.x = worldX; tempWire.end.y = worldY;
+            }
+            
+            if (hoverPin && hoverPin.type === targetPinType) { 
+                if (isDraggingFromInput) {
+                    tempWire.start.x = hoverPin.x; tempWire.start.y = hoverPin.y; tempWire.start.dir = hoverPin.dir;
+                } else {
+                    tempWire.end.x = hoverPin.x; tempWire.end.y = hoverPin.y; tempWire.end.dir = hoverPin.dir;
+                }
+                canvas.classList.add('gate-hover'); 
+            } else {
+                canvas.classList.remove('gate-hover');
+            }
+            draw();
+            
+        } else if (isGateDragging && draggedGate) { /* Gate 拖曳更新邏輯 (略) */
+            const newWorldX = currentX - Math.round(offsetX) - dragStartOffset.x;
+            const newWorldY = currentY - Math.round(offsetY) - dragStartOffset.y;
+            draggedGate.x = newWorldX;
+            draggedGate.y = newWorldY;
+            updateLogicStates(); 
+            draw(); 
+            
+        } else if (dragging) { /* Canvas 平面拖曳邏輯 (略) */
+            const dx = currentX - lastX;
+            const dy = currentY - lastY;
+            offsetX = Math.round(offsetX + dx);
+            offsetY = Math.round(offsetY + dy);
+            lastX = currentX;
+            lastY = currentY;
+            draw();
+        } 
+    };
+
+    window.onmouseup = e => {
+        const worldX = e.clientX - Math.round(offsetX);
+        const worldY = e.clientY - Math.round(offsetY);
+
+        if (isPinDragging && draggedPin) { /* Pin 釋放連線邏輯 (略) */
+            const targetPinType = isDraggingFromInput ? 'output' : 'input';
+            const targetPin = getPinAt(worldX, worldY);
+
+            if (targetPin && targetPin.type === targetPinType) {
+                let sourcePin = isDraggingFromInput ? targetPin : draggedPin;
+                let targetPinFinal = isDraggingFromInput ? draggedPin : targetPin;
+                
+                const existingWireIndex = wires.findIndex(w => 
+                    w.targetGateId === targetPinFinal.gate.id && w.targetPinIndex === targetPinFinal.index
+                );
+                if (existingWireIndex !== -1) { wires.splice(existingWireIndex, 1); }
+
+                wires.push({
+                    sourceGateId: sourcePin.gate.id, sourcePinType: sourcePin.type, sourcePinIndex: sourcePin.index,
+                    targetGateId: targetPinFinal.gate.id, targetPinType: targetPinFinal.type, targetPinIndex: targetPinFinal.index,
+                });
+            }
+            
+            tempWire = null; isPinDragging = false; draggedPin = null; isDraggingFromInput = false;
+            canvas.classList.remove('pin-drag'); canvas.classList.remove('gate-hover');
+            updateLogicStates();
+            draw();
+            return;
+        }
+
+        if (isGateDragging && draggedGate) { /* Gate 釋放/切換邏輯 (略) */
+            const dx = worldX - dragStartX;
+            const dy = worldY - dragStartY;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance < CLICK_TICK_TOLERANCE && draggedGate.type === 'switch') {
+                draggedGate.value = 1 - draggedGate.value; 
+                updateLogicStates();
+            }
+            
+            isGateDragging = false; draggedGate = null;
+            canvas.classList.remove('dragging');
+            draw();
+            return;
+        }
+
+        dragging = false;
+        canvas.classList.remove('dragging');
+    };
+
+
+    // ------------------------------------------------------------------
+    // 📱 觸控事件處理 (新增)
+    // ------------------------------------------------------------------
+    
+    function triggerContextMenu(clientX, clientY) {
+        // 模擬 right-click 的座標轉換
+        const worldX = clientX - Math.round(offsetX);
+        const worldY = clientY - Math.round(offsetY);
+        
+        const gate = getGateAt(worldX, worldY);
+        const pin = getPinAt(worldX, worldY);
+
+        if (gate && !pin) {
+            // 點擊到邏輯閘本體，且不在 Pin 上
+            clickedGateIdForMenu = gate.id;
+            gateMenu.style.left = clientX + 'px';
+            gateMenu.style.top = clientY + 'px';
+            gateMenu.style.display = 'block';
+        } else if (!gate && !pin) {
+            // 點擊到空白處
+            tempPos = { x: worldX, y: worldY };
+            newGateMenu.style.left = clientX + 'px';
+            newGateMenu.style.top = clientY + 'px';
+            newGateMenu.style.display = 'block';
+        }
+    }
+
+    canvas.ontouchstart = e => {
+        if (e.touches.length !== 1) {
+            hideMenus();
+            return;
+        }
+        
+        hideMenus();
+        
+        const touch = e.touches[0];
+        touchStartClientX = touch.clientX;
+        touchStartClientY = touch.clientY;
+        
+        // 啟動長按計時器
+        longPressTimer = setTimeout(() => {
+            e.preventDefault(); // 阻止瀏覽器預設的行為（如頁面縮放或原生右鍵菜單）
+            triggerContextMenu(touch.clientX, touch.clientY);
+        }, LONG_PRESS_DURATION);
+
+        // 接著模擬 mousedown 啟動拖曳邏輯 (使用第一個觸點)
+        const fakeEvent = {
+            clientX: touch.clientX,
+            clientY: touch.clientY,
+            button: 0, // 模擬左鍵
+            altKey: e.altKey || false // 雖然手機沒有 Alt，但保留
+        };
+        canvas.onmousedown(fakeEvent);
+    };
+
+    window.ontouchmove = e => {
+        const touch = e.touches[0];
+        const dx = touch.clientX - touchStartClientX;
+        const dy = touch.clientY - touchStartClientY;
+        
+        // 如果移動超過容忍範圍，取消長按計時器
+        if (longPressTimer && Math.sqrt(dx * dx + dy * dy) > TOUCH_MOVE_TOLERANCE) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+        }
+        
+        // 接著模擬 mousemove 保持拖曳邏輯
+        const fakeEvent = {
+            clientX: touch.clientX,
+            clientY: touch.clientY,
+            preventDefault: () => {} 
+        };
+        window.onmousemove(fakeEvent);
+    };
+
+    window.ontouchend = e => {
+        // 取消長按計時器
+        if (longPressTimer) {
+            clearTimeout(longPressTimer);
+            longPressTimer = null;
+            // 如果計時器沒有觸發，且這次觸控是點擊 (沒有拖曳太多)，則不應觸發 mouseup 導致開關切換
+            // 但由於上面的 onmousedown 已經啟動了邏輯，這裡直接執行 mouseup
+        }
+
+        // 模擬 mouseup 結束拖曳邏輯 (注意：如果手指在長按計時器觸發前抬起，它會被當作普通點擊/拖曳結束)
+        const fakeEvent = {
+            clientX: touchStartClientX, // 使用起始座標模擬點擊結束
+            clientY: touchStartClientY,
+            button: 0 
+        };
+        window.onmouseup(fakeEvent); 
+    };
+
+    // ------------------------------------------------------------------
+    // 🖱️ 右鍵選單邏輯 (保持不變，專門給 PC 桌面使用)
+    // ------------------------------------------------------------------
+    
+    canvas.oncontextmenu = e => {
+        if (dragging || isGateDragging || isPinDragging) return;
+        
+        e.preventDefault();
+        hideMenus(); 
+
+        triggerContextMenu(e.clientX, e.clientY);
+    };
+    
+    // 處理新增元件選單點擊
+    document.querySelectorAll('#newGateMenu .mi').forEach(mi => {
+        mi.onclick = () => {
+            if (tempPos) {
+                const newGate = { 
+                    id: nextGateId++, type: mi.dataset.g, x: tempPos.x, y: tempPos.y, value: 0, output: 0 
+                };
+                gates.push(newGate);
+                updateLogicStates(); draw();
+            }
+            hideMenus();
+            tempPos = null; 
+        };
+    });
+
+    // 處理邏輯閘操作選單點擊
+    document.querySelectorAll('#gateMenu .mi').forEach(mi => {
+        mi.onclick = () => {
+            if (clickedGateIdForMenu !== null) {
+                const action = mi.dataset.action;
+                if (action === 'delete') {
+                    deleteGate(clickedGateIdForMenu);
+                } 
+            }
+            hideMenus();
+        };
+    });
+
+    // 點擊視窗其他地方隱藏選單
+    window.onclick = e => {
+        const isClickOnMenu = newGateMenu.contains(e.target) || gateMenu.contains(e.target);
+        if (!isClickOnMenu && e.target.tagName !== 'CANVAS') {
+            hideMenus();
+        }
+    };
+    
+    // 其他控制按鈕邏輯 (略)
+    darkBtn.onclick = () => {
+        body.classList.toggle('dark');
+        darkBtn.textContent = body.classList.contains('dark') ? '淺色模式' : '深色模式';
+        draw();
+    };
+    document.getElementById('gridBtn').onclick = () => {
+        showGrid = !showGrid;
+        document.getElementById('gridBtn').textContent = showGrid ? '關閉網格' : '開啟網格';
+        draw();
+    };
+</script>
+</body>
+</html>
