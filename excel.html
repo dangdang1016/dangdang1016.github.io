@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>純 JavaScript 網頁電子表格</title>
+    <style>
+        /* --- CSS 樣式 --- */
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+
+        #toolbar {
+            margin-bottom: 10px;
+            padding: 10px;
+            background-color: #fff;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            /* 讓工具列保持在頂部 */
+            position: sticky; 
+            top: 0;
+            z-index: 10;
+        }
+
+        #cell-input {
+            width: 300px;
+            padding: 5px;
+            border: 1px solid #007bff;
+            border-radius: 3px;
+            font-size: 14px;
+        }
+        
+        #cell-address {
+            font-weight: bold;
+            color: #007bff;
+            padding: 5px;
+            min-width: 50px;
+            text-align: center;
+            border: 1px solid #ccc;
+            background-color: #e9ecef;
+            border-radius: 3px;
+        }
+
+        #spreadsheet-container {
+            overflow: auto;
+            max-height: calc(100vh - 150px); /* 確保表格不會超出視窗 */
+            background-color: #fff;
+            border: 1px solid #ccc;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .spreadsheet {
+            border-collapse: collapse;
+            table-layout: fixed; /* 固定表格佈局 */
+            min-width: 100%;
+        }
+
+        .spreadsheet th, .spreadsheet td {
+            border: 1px solid #ddd;
+            padding: 0; /* 移除預設 padding，讓內容和邊框更貼合 */
+            height: 25px;
+            min-width: 80px;
+            box-sizing: border-box;
+            white-space: nowrap; /* 防止內容換行 */
+            overflow: hidden; /* 隱藏溢出內容 */
+            text-overflow: ellipsis; /* 顯示省略符號 */
+            text-align: right;
+        }
+        
+        .header-cell {
+            background-color: #f0f0f0;
+            text-align: center !important;
+            font-weight: normal;
+            cursor: default;
+            /* 固定表頭 */
+            position: sticky;
+            top: 0;
+            z-index: 2; 
+        }
+
+        .row-header {
+            width: 30px; /* 行號寬度 */
+            min-width: 30px;
+            /* 固定行號 */
+            position: sticky;
+            left: 0;
+            z-index: 1; 
+        }
+
+        /* 左上角交叉點，需要更高 z-index 確保在兩者之上 */
+        .row-header:first-child {
+            z-index: 3;
+        }
+
+        .cell-input {
+            width: 100%;
+            height: 100%;
+            border: none;
+            padding: 3px 5px;
+            box-sizing: border-box;
+            outline: none;
+            font-size: 14px;
+            text-align: inherit; /* 繼承 td 的文字對齊 */
+        }
+
+        /* 儲存格選中樣式 */
+        .selected-cell {
+            border: 2px solid #007bff !important;
+            outline: none;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="toolbar">
+        <div id="cell-address">A1</div>
+        <input type="text" id="cell-input" placeholder="輸入公式或數值...">
+    </div>
+
+    <div id="spreadsheet-container">
+        <table class="spreadsheet" id="spreadsheet">
+        </table>
+    </div>
+
+    <script>
+        // --- JavaScript 邏輯 ---
+
+        const ROWS = 100; // **修改為 100 行**
+        const COLS = 100; // **修改為 100 列**
+
+        const spreadsheet = document.getElementById('spreadsheet');
+        const cellInput = document.getElementById('cell-input');
+        const cellAddressDisplay = document.getElementById('cell-address');
+        const cellData = {}; // 用於儲存所有儲存格的原始值 (包括公式)
+        
+        let selectedRow = 1;
+        let selectedCol = 1;
+
+        // 將數字轉換為 Excel 列字母 (1 -> A, 2 -> B, 27 -> AA)
+        function colToLetter(col) {
+            let temp, letter = '';
+            while (col > 0) {
+                temp = (col - 1) % 26;
+                letter = String.fromCharCode(temp + 65) + letter;
+                col = (col - temp - 1) / 26;
+            }
+            return letter;
+        }
+
+        // 將 Excel 列字母轉換為數字 (A -> 1, B -> 2, AA -> 27)
+        function letterToCol(letter) {
+             let col = 0;
+             for (let i = 0; i < letter.length; i++) {
+                 col = col * 26 + (letter.charCodeAt(i) - 64);
+             }
+             return col;
+        }
+
+        // 獲取儲存格的地址 (例如 A1, B5)
+        function getCellAddress(row, col) {
+            return colToLetter(col) + row;
+        }
+
+        // 獲取儲存格的 ID
+        function getCellId(row, col) {
+            return `cell-${row}-${col}`;
+        }
+        
+        // 獲取儲存格的 DOM 元素
+        function getCellElement(row, col) {
+            return document.getElementById(getCellId(row, col));
+        }
+
+        // 檢查值是否為數字
+        function isNumeric(value) {
+            // 檢查是否為有限的數字 (排除 NaN 和 Infinity)
+            return !isNaN(parseFloat(value)) && isFinite(value);
+        }
+
+        // --- 公式解析與計算 ---
+
+        // 簡單的公式計算器，支援 SUM 和基礎算術
+        function evaluateFormula(formula) {
+            // 移除等號
+            formula = formula.substring(1).toUpperCase(); 
+
+            // 1. 處理 SUM 公式: =SUM(A1:A5)
+            const sumMatch = formula.match(/^SUM\((.+)\)$/);
+            if (sumMatch) {
+                const range = sumMatch[1]; // A1:A5 或 A1,A2,A3 (目前只處理 A1:A5 範圍)
+                const rangeMatch = range.match(/^([A-Z]+\d+):([A-Z]+\d+)$/);
+
+                if (!rangeMatch) return "#SYNTAX!";
+
+                const startAddr = rangeMatch[1];
+                const endAddr = rangeMatch[2];
+
+                const startColLetter = startAddr.match(/^[A-Z]+/)[0];
+                const startRow = parseInt(startAddr.match(/\d+$/)[0]);
+                const endColLetter = endAddr.match(/^[A-Z]+/)[0];
+                const endRow = parseInt(endAddr.match(/\d+$/)[0]);
+
+                if (isNaN(startRow) || isNaN(endRow)) return "#REF!";
+
+                const startCol = letterToCol(startColLetter);
+                const endCol = letterToCol(endColLetter);
+                
+                let sum = 0;
+                let count = 0;
+
+                // 遍歷範圍內的儲存格
+                for (let r = Math.min(startRow, endRow); r <= Math.max(startRow, endRow); r++) {
+                    for (let c = Math.min(startCol, endCol); c <= Math.max(startCol, endCol); c++) {
+                        // 檢查範圍是否超出界限
+                        if (r < 1 || r > ROWS || c < 1 || c > COLS) {
+                            continue;
+                        }
+                        
+                        const cellValue = getCellValue(r, c, true); // 遞歸獲取計算後的值
+                        
+                        if (isNumeric(cellValue)) {
+                            sum += parseFloat(cellValue);
+                            count++;
+                        } else if (cellValue && cellValue.startsWith("#")) {
+                            return "#REF!"; // 如果範圍內有錯誤，返回錯誤
+                        }
+                    }
+                }
+                
+                return sum;
+            }
+
+            // 2. 處理基礎算術和單個儲存格引用
+            let evaluatedFormula = formula;
+            let hasError = false;
+
+            // 將所有儲存格引用 (如 A1, C3) 替換為它們的計算值
+            const cellRefRegex = /([A-Z]+)(\d+)/g;
+            evaluatedFormula = evaluatedFormula.replace(cellRefRegex, (match, colLetter, rowNum) => {
+                const r = parseInt(rowNum);
+                const c = letterToCol(colLetter);
+                
+                // 檢查引用是否超出範圍
+                if (r < 1 || r > ROWS || c < 1 || c > COLS) {
+                    hasError = true;
+                    return "#REF!";
+                }
+
+                const cellValue = getCellValue(r, c, true); // 遞歸獲取值
+                
+                if (cellValue === null || cellValue === undefined || cellValue === "") return 0; // 空白儲存格視為 0
+                
+                if (isNumeric(cellValue)) {
+                    return `(${cellValue})`; // 加上括號避免運算順序錯誤
+                } else if (cellValue.startsWith("#")) {
+                    hasError = true;
+                    return "#REF!";
+                } else {
+                    // 如果引用的不是數字 (例如文本)，在數學運算中視為 0
+                    return 0; 
+                }
+            });
+
+            if (hasError) return "#REF!";
+
+            try {
+                // 確保公式只包含數字和基本數學運算符
+                // 雖然 eval 有安全風險，但在客戶端且無外部資料的情況下可接受
+                const result = eval(evaluatedFormula); 
+                // 檢查是否為有限數字，避免 Infinity
+                return isFinite(result) ? (Math.round(result * 10000) / 10000) : "#DIV/0!"; 
+            } catch (e) {
+                return "#ERROR!";
+            }
+        }
+        
+        // 獲取儲存格的計算值
+        function getCellValue(row, col, suppressError = false) {
+            const addr = getCellAddress(row, col);
+            // 確保地址存在且在界限內
+            if (row < 1 || row > ROWS || col < 1 || col > COLS) return ""; 
+
+            const rawValue = cellData[addr] || "";
+            
+            if (rawValue.startsWith('=')) {
+                try {
+                    // 檢查循環引用 (簡單實現：避免直接引用自己)
+                    // 更複雜的電子表格需要一個依賴圖來檢測
+                    if (addr === getCellAddress(selectedRow, selectedCol) && !suppressError) {
+                        // 如果是當前選中的儲存格，並且正在工具列中查看，返回原始公式
+                        return rawValue; 
+                    }
+                    
+                    const result = evaluateFormula(rawValue);
+                    return result;
+                } catch (e) {
+                    return suppressError ? "#ERROR!" : rawValue; 
+                }
+            }
+            
+            return rawValue;
+        }
+
+        // 更新儲存格的顯示值
+        function updateCellDisplay(row, col) {
+            const cellEl = getCellElement(row, col);
+            if (!cellEl) return;
+
+            const calculatedValue = getCellValue(row, col);
+
+            // 根據內容設置對齊方式
+            let align = 'left';
+            if (isNumeric(calculatedValue) || calculatedValue.startsWith('#')) {
+                align = 'right';
+            } else if (calculatedValue === "") {
+                align = 'right'; // 空白也靠右 (或置中，這裡使用右對齊模仿 Excel 的數字預設)
+            }
+            cellEl.style.textAlign = align;
+            
+            // 將計算值放入 <input> 中顯示
+            const inputEl = cellEl.querySelector('input');
+            if (inputEl) {
+                // 如果是錯誤或數字，顯示計算結果。否則顯示原始文本。
+                inputEl.value = calculatedValue;
+            }
+        }
+        
+        // 重新計算所有儲存格的值
+        function recalculateAll() {
+            // 遍歷所有儲存格並更新其顯示值
+            for (let r = 1; r <= ROWS; r++) {
+                for (let c = 1; c <= COLS; c++) {
+                    updateCellDisplay(r, c);
+                }
+            }
+        }
+
+        // --- DOM 建立與事件處理 ---
+
+        // 初始化表格結構
+        function initSpreadsheet() {
+            // 建立表頭 (A, B, C...)
+            const thead = spreadsheet.createTHead();
+            const headerRow = thead.insertRow();
+            
+            // 左上角空白
+            let thCorner = document.createElement('th');
+            thCorner.className = 'header-cell row-header';
+            headerRow.appendChild(thCorner);
+
+            for (let c = 1; c <= COLS; c++) {
+                let th = document.createElement('th');
+                th.textContent = colToLetter(c);
+                th.className = 'header-cell';
+                headerRow.appendChild(th);
+            }
+
+            // 建立表格主體 (儲存格)
+            const tbody = spreadsheet.createTBody();
+            for (let r = 1; r <= ROWS; r++) {
+                const row = tbody.insertRow();
+                
+                // 行號
+                let thRow = document.createElement('th');
+                thRow.textContent = r;
+                thRow.className = 'header-cell row-header';
+                row.appendChild(thRow);
+
+                for (let c = 1; c <= COLS; c++) {
+                    const cell = row.insertCell();
+                    cell.id = getCellId(r, c);
+                    
+                    // 在儲存格內放置一個輸入框，用於顯示和編輯
+                    const input = document.createElement('input');
+                    input.type = 'text';
+                    input.className = 'cell-input';
+                    input.tabIndex = -1; // 禁用tab鍵切換，由我們自己控制
+
+                    // 點擊儲存格 (td)
+                    cell.addEventListener('click', (e) => {
+                        selectCell(r, c);
+                        e.stopPropagation(); // 防止點擊事件冒泡到其他地方
+                    });
+                    
+                    // 雙擊儲存格 (td) 進入編輯模式
+                    cell.addEventListener('dblclick', () => {
+                        selectCell(r, c);
+                        // 將原始值 (公式或文本) 載入到工具列輸入框
+                        cellInput.value = cellData[getCellAddress(r, c)] || "";
+                        cellInput.focus();
+                    });
+
+                    cell.appendChild(input);
+                }
+            }
+            
+            // 預設選中 A1
+            selectCell(1, 1);
+            recalculateAll(); // 初始計算一次
+        }
+
+        // 選中儲存格
+        function selectCell(r, c) {
+            const currentSelected = document.querySelector('.selected-cell');
+            if (currentSelected) {
+                currentSelected.classList.remove('selected-cell');
+            }
+            
+            const newCell = getCellElement(r, c);
+            if (newCell) {
+                newCell.classList.add('selected-cell');
+                selectedRow = r;
+                selectedCol = c;
+                
+                const address = getCellAddress(r, c);
+                cellAddressDisplay.textContent = address;
+                
+                // 將儲存格的原始值 (公式) 載入到工具列輸入框
+                cellInput.value = cellData[address] || "";
+            }
+        }
+        
+        // 處理工具列輸入框的輸入事件 (按 Enter 或失去焦點)
+        cellInput.addEventListener('change', () => {
+            const addr = getCellAddress(selectedRow, selectedCol);
+            const newValue = cellInput.value; // 保留 trim()，允許使用者輸入純空格
+
+            // 1. 更新儲存格數據
+            cellData[addr] = newValue;
+            
+            // 2. 重新計算所有儲存格
+            recalculateAll();
+            
+            // 3. 重新將選中儲存格的原始值 (公式) 顯示在工具列輸入框中
+            cellInput.value = cellData[addr] || ""; 
+            cellInput.blur(); // 失去焦點
+        });
+        
+        // 處理工具列輸入框的 Enter 鍵
+        cellInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                cellInput.dispatchEvent(new Event('change')); // 觸發 change 事件保存數據
+                
+                // 模擬 Excel 的 Enter 行為：向下移動
+                const newRow = Math.min(ROWS, selectedRow + 1);
+                selectCell(newRow, selectedCol);
+            }
+        });
+
+        // 處理鍵盤導航 (方向鍵)
+        document.addEventListener('keydown', (e) => {
+            let newRow = selectedRow;
+            let newCol = selectedCol;
+            
+            // 如果工具列輸入框正在編輯，方向鍵應在輸入框內移動
+            if (document.activeElement === cellInput) return;
+
+            // 如果按下任意可見字元鍵，則自動聚焦到輸入框並開始輸入
+            if (e.key.length === 1 || e.key === 'Backspace' || e.key === 'Delete') {
+                cellInput.value = (e.key.length === 1 && !e.ctrlKey && !e.metaKey) ? e.key : "";
+                cellInput.focus();
+                // 如果是單一字元，阻止它重複輸入
+                if (e.key.length === 1) e.preventDefault(); 
+                return;
+            }
+
+
+            switch (e.key) {
+                case 'ArrowUp':
+                    newRow = Math.max(1, selectedRow - 1);
+                    break;
+                case 'ArrowDown':
+                    newRow = Math.min(ROWS, selectedRow + 1);
+                    break;
+                case 'ArrowLeft':
+                    newCol = Math.max(1, selectedCol - 1);
+                    break;
+                case 'ArrowRight':
+                    newCol = Math.min(COLS, selectedCol + 1);
+                    break;
+                case 'Enter':
+                    // 如果沒有在編輯中，Enter 鍵切換到下一行
+                    newRow = Math.min(ROWS, selectedRow + 1);
+                    if (newRow === selectedRow) return; 
+                    break;
+                case 'F2':
+                    // F2 進入編輯模式
+                    cellInput.focus();
+                    e.preventDefault();
+                    return;
+                default:
+                    return; // 忽略其他按鍵
+            }
+
+            if (newRow !== selectedRow || newCol !== selectedCol) {
+                e.preventDefault(); // 阻止瀏覽器預設行為
+                selectCell(newRow, newCol);
+                
+                // 確保選中後表格滾動到視野內
+                const newCellEl = getCellElement(newRow, newCol);
+                if (newCellEl) {
+                    newCellEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+                }
+            }
+        });
+
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            initSpreadsheet();
+        });
+
+    </script>
+
+</body>
+</html>
