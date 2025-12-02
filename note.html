@@ -46,26 +46,55 @@
         /*
          * 白紙元素 (可輸入) 樣式
          */
-        .note-paper {
+        .note-paper, .note-table { /* 讓表格元素也套用基本樣式 */
             position: absolute; 
             background-color: white;
             border: 1px solid #aaa;
             box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.1);
             resize: none; 
-            /* 核心調整：移除填充，實現精確尺寸 */
             padding: 0; 
             font-size: 14px;
-            overflow: hidden; /* 確保小尺寸時內容不會溢出 */
+            overflow: hidden; 
             cursor: move; 
             white-space: pre-wrap;
-            /* 核心調整：允許最小 1px */
             min-width: 1px; 
             min-height: 1px;
             user-select: text; 
             outline: none; 
-            /* 確保邊框和陰影不被計入尺寸內 */
             box-sizing: border-box; 
         }
+        
+        /*
+         * 表格元素專屬樣式
+         */
+        .note-table {
+            border: 1px solid #007bff; /* 表格使用不同的邊框顏色以區分 */
+            padding: 5px; /* 表格內層留白 */
+            text-align: left;
+        }
+
+        .note-table table {
+            width: 100%;
+            height: 100%;
+            border-collapse: collapse;
+        }
+
+        .note-table th, .note-table td {
+            border: 1px solid #ccc;
+            padding: 5px;
+            text-align: left;
+            cursor: text; /* 確保內容可選取 */
+        }
+        
+        /* 讓表格單元格可編輯 */
+        .note-table [contenteditable="true"] {
+            user-select: text;
+            min-height: 1.2em; /* 確保空白單元格的高度 */
+            display: block; 
+            width: 100%;
+            height: 100%;
+        }
+
 
         /*
          * 右鍵選單的基礎樣式 (不變)
@@ -187,7 +216,7 @@
             </div>
         </div>
         
-        <div class="menu-item" data-action="new-table">新增表格 ></div>
+        <div class="menu-item" data-action="new-table">新增表格 (3x2)</div> 
     </div>
 
     <div id="note-context-menu" class="context-menu">
@@ -222,17 +251,16 @@
         const menuForward = document.getElementById('note-menu-forward');
         const body = document.body;
 
-        const customModal = document.getElementById('custom-size-modal'); // 自訂視窗
+        const customModal = document.getElementById('custom-size-modal'); 
         const customInput = document.getElementById('custom-size-input');
         const confirmButton = document.getElementById('confirm-custom');
         const cancelButton = document.getElementById('cancel-custom');
         
-        // --- 核心調整: 定義基礎網格單元大小 (1x1 = 100px x 100px) ---
+        // --- 核心調整: 定義基礎網格單元大小 ---
         const GRID_UNIT_SIZE = 100;
-        // 核心調整：最小可用尺寸限制為 1 (格)
         const MIN_CUSTOM_SIZE = 1;
 
-        // 定義預設尺寸 (以格子為單位)
+        // 定義預設尺寸 (以像素為單位)
         const PAPER_SIZES = {
             'new-paper-1x1': { width: GRID_UNIT_SIZE * 1, height: GRID_UNIT_SIZE * 1 },
             'new-paper-2x2': { width: GRID_UNIT_SIZE * 2, height: GRID_UNIT_SIZE * 2 }, 
@@ -240,6 +268,11 @@
             'new-paper-10x10': { width: GRID_UNIT_SIZE * 6, height: GRID_UNIT_SIZE * 6 }, 
             'new-paper-100x100': { width: GRID_UNIT_SIZE * 8, height: GRID_UNIT_SIZE * 8 } 
         };
+        
+        // 新增預設表格尺寸 (3x2 格)
+        const DEFAULT_TABLE_WIDTH = GRID_UNIT_SIZE * 3;
+        const DEFAULT_TABLE_HEIGHT = GRID_UNIT_SIZE * 2;
+
 
         let isGridDragging = false;
         let isNoteDragging = false;
@@ -256,7 +289,8 @@
         // --- 拖曳邏輯 (保持不變) ---
 
         container.addEventListener('mousedown', (e) => {
-            if (e.target.classList.contains('note-paper')) return;
+            // 檢查點擊的目標是否是可拖曳元素
+            if (e.target.closest('.note-paper') || e.target.closest('.note-table')) return;
             if (e.button !== 0) return; 
 
             hideAllContextMenus();
@@ -270,7 +304,7 @@
 
         document.addEventListener('mousemove', (e) => {
             if (isNoteDragging && activeNote) {
-                // 白紙拖曳
+                // 白紙/表格拖曳
                 const deltaX = e.clientX - startX;
                 const deltaY = e.clientY - startY;
                 activeNote.style.left = `${initialNoteX + deltaX}px`;
@@ -312,8 +346,17 @@
         });
 
         contentLayer.addEventListener('mousedown', (e) => {
-            if (e.target.classList.contains('note-paper') && e.button === 0) {
-                activeNote = e.target;
+            // 檢查點擊的目標是否是可拖曳的元素本身（白紙或表格容器）
+            const targetElement = e.target.closest('.note-paper, .note-table');
+            
+            // 確保不是點擊表格內的單元格
+            if (e.target.closest('.note-table td, .note-table th') && targetElement) {
+                // 如果點擊的是表格內容，則不開始拖曳，允許文字選取
+                return;
+            }
+
+            if (targetElement && e.button === 0) {
+                activeNote = targetElement;
                 isNoteDragging = true;
                 bringNoteToFront(activeNote);
                 startX = e.clientX;
@@ -324,7 +367,7 @@
             }
         });
 
-        // --- 2. 右鍵選單邏輯 (保持不變) ---
+        // --- 右鍵選單邏輯 (修正以包含表格) ---
 
         function hideAllContextMenus() {
             contextMenu.style.display = 'none';
@@ -338,9 +381,12 @@
             
             lastClickX = e.clientX;
             lastClickY = e.clientY;
+            
+            // 檢查點擊的是否是白紙或表格元素
+            const targetNote = e.target.closest('.note-paper, .note-table');
 
-            if (e.target.classList.contains('note-paper')) {
-                lastClickedNote = e.target;
+            if (targetNote) {
+                lastClickedNote = targetNote;
                 displayNoteContextMenu(e.clientX, e.clientY);
             } else {
                 lastClickedNote = null;
@@ -350,11 +396,9 @@
 
         // 點擊頁面其他地方時隱藏選單
         document.addEventListener('click', (e) => {
-             // 檢查點擊是否在任何選單或模態視窗之外
             if (!contextMenu.contains(e.target) && !noteContextMenu.contains(e.target) && !customModal.contains(e.target) && customModal.style.display !== 'flex') {
                 hideAllContextMenus();
             }
-            // 點擊模態視窗內容以外的區域，隱藏模態視窗
             if (customModal.style.display === 'flex' && e.target === customModal) {
                 customModal.style.display = 'none';
             }
@@ -419,7 +463,7 @@
             return false;
         }
 
-        // 顯示白紙選單 (不變)
+        // 顯示白紙/表格選單 (不變)
         function displayNoteContextMenu(x, y) {
             const children = Array.from(contentLayer.children);
             const index = children.indexOf(lastClickedNote);
@@ -447,7 +491,7 @@
             positionAndShowMenu(noteContextMenu, x, y);
         }
 
-        // 點擊網格選單項目時的處理 (保持不變)
+        // 點擊網格選單項目時的處理 (新增表格處理)
         contextMenu.addEventListener('click', (e) => {
             const actionElement = e.target.closest('.menu-item');
             if (actionElement && actionElement.getAttribute('data-action')) {
@@ -456,28 +500,28 @@
                 hideAllContextMenus();
 
                 if (PAPER_SIZES[action]) {
-                    // 這裡的尺寸已經是像素值
                     const { width, height } = PAPER_SIZES[action];
                     console.log(`[選單] 建立白紙尺寸: ${action} -> 寬 ${width}px, 高 ${height}px`);
                     createNewPaper(width, height); 
                 } else if (action === 'new-paper-custom') {
-                    // 顯示自訂尺寸模態視窗
-                    customInput.value = ''; // 清空輸入框
-                    customModal.style.display = 'flex'; // 使用 flex 居中
+                    customInput.value = '';
+                    customModal.style.display = 'flex';
                     customInput.focus();
                 } else if (action === 'new-table') {
-                    console.log(`[選單] 執行動作: ${action}`);
+                    // *** 新增表格邏輯 ***
+                    console.log(`[選單] 執行動作: ${action} -> 創建預設表格 3x2 (300px x 200px)`);
+                    createNewTable(3, 2); // 預設 3x2
                 }
             }
         });
 
-        // 點擊白紙選單項目時的處理 (保持不變)
+        // 點擊白紙/表格選單項目時的處理 (保持不變)
         noteContextMenu.addEventListener('click', (e) => {
             if (!lastClickedNote) return;
             const action = e.target.closest('.menu-item')?.getAttribute('data-note-action');
             
             if (action) {
-                console.log(`[白紙選單] 執行動作: ${action}`);
+                console.log(`[元素選單] 執行動作: ${action}`);
                 switch (action) {
                     case 'print':
                         // ...
@@ -497,7 +541,7 @@
             }
         });
         
-        // --- 3. 自訂尺寸模態視窗邏輯 (已修正) ---
+        // --- 自訂尺寸模態視窗邏輯 (保持不變) ---
 
         confirmButton.addEventListener('click', () => {
             processCustomSize(customInput.value);
@@ -519,10 +563,8 @@
          */
         function processCustomSize(input) {
             
-            // 將輸入的字串標準化 (例如 '10 x 10' -> '10x10')
             const standardizedInput = input.trim().toLowerCase().replace(/\s*[xX*]\s*/, 'x');
 
-            // 檢查是否為預設的數字對，強制使用選單尺寸 (確保 1x1 始終是 100x100px)
             if (PAPER_SIZES[`new-paper-${standardizedInput}`]) {
                 const action = `new-paper-${standardizedInput}`;
                 const { width, height } = PAPER_SIZES[action];
@@ -532,26 +574,23 @@
                 return; 
             }
 
-            // 處理一般自訂格式: 匹配 數字 x 數字 (數字為格數)
             const match = standardizedInput.match(/^(\d+)x(\d+)$/);
 
             if (match) {
                 const gridWidth = parseInt(match[1]);
                 const gridHeight = parseInt(match[2]);
 
-                // 核心調整：檢查是否小於最小尺寸 1 (格)
                 if (gridWidth < MIN_CUSTOM_SIZE || gridHeight < MIN_CUSTOM_SIZE) {
                     console.error(`[自訂] 錯誤: 寬度或高度必須至少為 ${MIN_CUSTOM_SIZE} 格 (W:${gridWidth}, H:${gridHeight})`);
                     alert(`無效的尺寸輸入。寬度和高度必須至少為 ${MIN_CUSTOM_SIZE} 格。`);
                     return;
                 }
                 
-                // 根據 GRID_UNIT_SIZE 計算最終像素值
                 const widthInPx = gridWidth * GRID_UNIT_SIZE;
                 const heightInPx = gridHeight * GRID_UNIT_SIZE;
 
                 console.log(`[自訂] 使用格數輸入尺寸: 寬 ${gridWidth}x${gridHeight} -> 寬 ${widthInPx}px, 高 ${heightInPx}px`);
-                customModal.style.display = 'none'; // 確定後視窗消失
+                customModal.style.display = 'none'; 
                 createNewPaper(widthInPx, heightInPx); 
             } else {
                 console.error(`[自訂] 錯誤: 無效的格式輸入: ${input}`);
@@ -560,18 +599,18 @@
         }
 
 
-        // --- 4. 元素層次控制與創建邏輯 (保持不變) ---
+        // --- 元素層次控制與創建邏輯 (新增表格創建函數) ---
 
         function moveNoteLayer(element, direction) {
             const parent = element.parentNode;
             if (!parent) return;
 
-            if (direction === 1) { // 往前移 (覆蓋): 將元素移到下一個元素之後
+            if (direction === 1) { // 往前移 (覆蓋)
                 const nextSibling = element.nextSibling;
                 if (nextSibling) {
                     parent.insertBefore(element, nextSibling.nextSibling);
                 }
-            } else if (direction === -1) { // 往後移 (被覆蓋): 將元素移到上一個元素之前
+            } else if (direction === -1) { // 往後移 (被覆蓋)
                 const prevSibling = element.previousSibling;
                 if (prevSibling) {
                     parent.insertBefore(element, prevSibling);
@@ -595,18 +634,16 @@
             paper.style.width = `${width}px`;
             paper.style.height = `${height}px`;
             
-            // 核心調整：只在尺寸足夠大時才添加提示文字和 padding
             if (width > 40 && height > 30) {
                 paper.innerHTML = '請在此輸入...'; 
                 paper.style.padding = '10px';
             } else {
                  paper.innerHTML = '';
-                 paper.style.padding = '0'; // 確保極小尺寸無填充
+                 paper.style.padding = '0';
             }
             
             const rect = container.getBoundingClientRect();
             
-            // 計算白紙在 content-layer 內的起始位置
             const posX = lastClickX - rect.left - currentContentX;
             const posY = lastClickY - rect.top - currentContentY;
 
@@ -618,8 +655,57 @@
             
             bringNoteToFront(paper);
 
-            // 加入除錯訊息
             console.log(`[創建] 成功建立新白紙: 尺寸 ${width}px x ${height}px, 位置 X:${Math.round(posX)}, Y:${Math.round(posY)}`);
+        }
+        
+        /**
+         * 創建一個新的表格元素 (預設 3x2 格)
+         * @param {number} cols - 欄數
+         * @param {number} rows - 列數
+         */
+        function createNewTable(cols, rows) {
+            const tableContainer = document.createElement('div');
+            tableContainer.classList.add('note-table');
+            
+            // 設置預設尺寸
+            const width = cols * GRID_UNIT_SIZE;
+            const height = rows * GRID_UNIT_SIZE;
+
+            tableContainer.style.width = `${width}px`;
+            tableContainer.style.height = `${height}px`;
+
+            // 構建表格內容
+            let tableHTML = '<table>';
+            for (let r = 0; r < rows; r++) {
+                tableHTML += '<tr>';
+                for (let c = 0; c < cols; c++) {
+                    // 第一列作為標題 (th)，其他為內容 (td)
+                    if (r === 0) {
+                        tableHTML += `<th><div contenteditable="true">標題${c + 1}</div></th>`;
+                    } else {
+                        tableHTML += `<td><div contenteditable="true"></div></td>`;
+                    }
+                }
+                tableHTML += '</tr>';
+            }
+            tableHTML += '</table>';
+
+            tableContainer.innerHTML = tableHTML;
+            
+            const rect = container.getBoundingClientRect();
+            
+            // 計算表格在 content-layer 內的起始位置
+            const posX = lastClickX - rect.left - currentContentX;
+            const posY = lastClickY - rect.top - currentContentY;
+
+            tableContainer.style.left = `${posX}px`;
+            tableContainer.style.top = `${posY}px`;
+
+            contentLayer.appendChild(tableContainer); 
+            
+            bringNoteToFront(tableContainer);
+
+            console.log(`[創建] 成功建立新表格: 尺寸 ${cols}x${rows} (${width}px x ${height}px), 位置 X:${Math.round(posX)}, Y:${Math.round(posY)}`);
         }
     </script>
 </body>
