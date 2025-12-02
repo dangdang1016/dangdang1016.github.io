@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>無限拖曳網格空間 (自訂尺寸功能)</title>
+    <style>
+        /*
+         * 基礎樣式
+         */
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden; 
+            background-color: white; 
+            user-select: none; 
+            cursor: grab; /* 預設滑鼠樣式 */
+        }
+
+        body.dragging {
+            cursor: grabbing; 
+        }
+
+        #grid-container {
+            width: 100%;
+            height: 100%;
+            position: relative; 
+            /* 間距 50px，淺灰色細線 */
+            background-image: 
+                repeating-linear-gradient(to right, rgba(0, 0, 0, 0.2) 0px, rgba(0, 0, 0, 0.2) 1px, transparent 1px, transparent 50px),
+                repeating-linear-gradient(to bottom, rgba(0, 0, 0, 0.2) 0px, rgba(0, 0, 0, 0.2) 1px, transparent 1px, transparent 50px);
+            background-size: 50px 50px; 
+        }
+        
+        /* 內容層：用於整體移動內容 */
+        #content-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        /*
+         * 白紙元素 (可輸入) 樣式
+         */
+        .note-paper {
+            position: absolute; 
+            background-color: white;
+            border: 1px solid #aaa;
+            box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.1);
+            resize: none; 
+            /* 核心調整：移除填充，實現精確尺寸 */
+            padding: 0; 
+            font-size: 14px;
+            overflow: hidden; /* 確保小尺寸時內容不會溢出 */
+            cursor: move; 
+            white-space: pre-wrap;
+            /* 核心調整：允許最小 1px */
+            min-width: 1px; 
+            min-height: 1px;
+            user-select: text; 
+            outline: none; 
+            /* 確保邊框和陰影不被計入尺寸內 */
+            box-sizing: border-box; 
+        }
+
+        /*
+         * 右鍵選單的基礎樣式 (不變)
+         */
+        .context-menu {
+            position: absolute;
+            background-color: #fff;
+            border: 1px solid #ccc;
+            box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.2);
+            z-index: 2000; 
+            display: none;
+            padding: 5px 0;
+            min-width: 150px;
+        }
+
+        .menu-item {
+            position: relative; 
+            padding: 8px 15px;
+            cursor: pointer;
+            white-space: nowrap; 
+        }
+
+        .menu-item:hover {
+            background-color: #f0f0f0;
+        }
+        
+        .submenu {
+            position: absolute;
+            top: -1px; 
+            left: 100%; 
+            background-color: #fff;
+            border: 1px solid #ccc;
+            box-shadow: 2px 2px 5px rgba(0, 0, 0, 0.2);
+            z-index: 2001; 
+            display: none; 
+            padding: 5px 0;
+            min-width: 150px;
+        }
+        
+        #menu-item-new-paper:hover > .submenu {
+            display: block;
+        }
+        
+        /*
+         * 自訂尺寸模態視窗樣式 (不變)
+         */
+        #custom-size-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: none; 
+            justify-content: center;
+            align-items: center;
+            z-index: 3000; 
+        }
+
+        .modal-content {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+            width: 300px;
+            text-align: center;
+        }
+
+        .modal-content h3 {
+            margin-top: 0;
+            color: #333;
+        }
+
+        .modal-content input {
+            width: 90%;
+            padding: 10px;
+            margin: 15px 0;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+            text-align: center;
+        }
+
+        .modal-content button {
+            padding: 10px 20px;
+            margin: 0 5px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        #confirm-custom {
+            background-color: #007bff;
+            color: white;
+        }
+
+        #cancel-custom {
+            background-color: #6c757d;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div id="grid-container">
+        <div id="content-layer"></div>
+    </div>
+    
+    <div id="context-menu" class="context-menu">
+        <div class="menu-item" id="menu-item-new-paper">
+            新增白紙 >
+            
+            <div class="submenu">
+                <div class="menu-item" data-action="new-paper-1x1">1x1</div>
+                <div class="menu-item" data-action="new-paper-2x2">2x2</div>
+                <div class="menu-item" data-action="new-paper-4x4">4x4</div>
+                <div class="menu-item" data-action="new-paper-10x10">10x10</div>
+                <div class="menu-item" data-action="new-paper-100x100">100x100</div>
+                <div class="menu-item" data-action="new-paper-custom">自訂</div>
+            </div>
+        </div>
+        
+        <div class="menu-item" data-action="new-table">新增表格 ></div>
+    </div>
+
+    <div id="note-context-menu" class="context-menu">
+        <div class="menu-item" data-note-action="print">列印</div>
+        <div class="menu-item" data-note-action="move-backward" id="note-menu-backward">往後移一層</div>
+        <div class="menu-item" data-note-action="move-forward" id="note-menu-forward">往前移一層</div>
+        <div class="menu-item" data-note-action="delete">刪除</div>
+    </div>
+
+    <div id="custom-size-modal">
+        <div class="modal-content">
+            <h3>自訂尺寸</h3>
+            <p>請輸入尺寸 (寬(格) x 高(格)，例如：3x2)</p>
+            <input type="text" id="custom-size-input" placeholder="寬(格) x 高(格) (例如: 3x2)">
+            <div>
+                <button id="confirm-custom">確定</button>
+                <button id="cancel-custom">取消</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /*
+         * JavaScript 部分
+         */
+
+        const container = document.getElementById('grid-container');
+        const contentLayer = document.getElementById('content-layer');
+        const contextMenu = document.getElementById('context-menu');
+        const noteContextMenu = document.getElementById('note-context-menu'); 
+        const menuBackward = document.getElementById('note-menu-backward');
+        const menuForward = document.getElementById('note-menu-forward');
+        const body = document.body;
+
+        const customModal = document.getElementById('custom-size-modal'); // 自訂視窗
+        const customInput = document.getElementById('custom-size-input');
+        const confirmButton = document.getElementById('confirm-custom');
+        const cancelButton = document.getElementById('cancel-custom');
+        
+        // --- 核心調整: 定義基礎網格單元大小 (1x1 = 100px x 100px) ---
+        const GRID_UNIT_SIZE = 100;
+        // 核心調整：最小可用尺寸限制為 1 (格)
+        const MIN_CUSTOM_SIZE = 1;
+
+        // 定義預設尺寸 (以格子為單位)
+        const PAPER_SIZES = {
+            'new-paper-1x1': { width: GRID_UNIT_SIZE * 1, height: GRID_UNIT_SIZE * 1 },
+            'new-paper-2x2': { width: GRID_UNIT_SIZE * 2, height: GRID_UNIT_SIZE * 2 }, 
+            'new-paper-4x4': { width: GRID_UNIT_SIZE * 4, height: GRID_UNIT_SIZE * 4 },
+            'new-paper-10x10': { width: GRID_UNIT_SIZE * 6, height: GRID_UNIT_SIZE * 6 }, 
+            'new-paper-100x100': { width: GRID_UNIT_SIZE * 8, height: GRID_UNIT_SIZE * 8 } 
+        };
+
+        let isGridDragging = false;
+        let isNoteDragging = false;
+        let startX, startY;
+        let currentContentX = 0, currentContentY = 0; 
+        let initialNoteX, initialNoteY; 
+        let activeNote = null; 
+        let lastClickedNote = null; 
+
+        const sensitivity = 1;
+        let lastClickX = 0;
+        let lastClickY = 0;
+
+        // --- 拖曳邏輯 (保持不變) ---
+
+        container.addEventListener('mousedown', (e) => {
+            if (e.target.classList.contains('note-paper')) return;
+            if (e.button !== 0) return; 
+
+            hideAllContextMenus();
+
+            isGridDragging = true;
+            body.classList.add('dragging');
+            startX = e.clientX;
+            startY = e.clientY;
+            e.preventDefault(); 
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (isNoteDragging && activeNote) {
+                // 白紙拖曳
+                const deltaX = e.clientX - startX;
+                const deltaY = e.clientY - startY;
+                activeNote.style.left = `${initialNoteX + deltaX}px`;
+                activeNote.style.top = `${initialNoteY + deltaY}px`;
+                e.preventDefault();
+            } else if (isGridDragging) {
+                // 網格拖曳
+                const deltaX = e.clientX - startX;
+                const deltaY = e.clientY - startY;
+                let newX = currentContentX + deltaX * sensitivity;
+                let newY = currentContentY + deltaY * sensitivity;
+
+                container.style.backgroundPosition = `${newX}px ${newY}px`;
+                contentLayer.style.transform = `translate(${newX}px, ${newY}px)`;
+                
+                startX = e.clientX;
+                startY = e.clientY;
+                currentContentX = newX;
+                currentContentY = newY;
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (isGridDragging) {
+                isGridDragging = false;
+                body.classList.remove('dragging');
+            }
+            if (isNoteDragging) {
+                isNoteDragging = false;
+                activeNote = null;
+            }
+        });
+        
+        document.addEventListener('mouseleave', () => {
+            if (isGridDragging) {
+                isGridDragging = false;
+                body.classList.remove('dragging'); 
+            }
+        });
+
+        contentLayer.addEventListener('mousedown', (e) => {
+            if (e.target.classList.contains('note-paper') && e.button === 0) {
+                activeNote = e.target;
+                isNoteDragging = true;
+                bringNoteToFront(activeNote);
+                startX = e.clientX;
+                startY = e.clientY;
+                initialNoteX = activeNote.offsetLeft;
+                initialNoteY = activeNote.offsetTop;
+                e.stopPropagation();
+            }
+        });
+
+        // --- 2. 右鍵選單邏輯 (保持不變) ---
+
+        function hideAllContextMenus() {
+            contextMenu.style.display = 'none';
+            noteContextMenu.style.display = 'none';
+        }
+        
+        // 處理右鍵點擊事件
+        document.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            hideAllContextMenus();
+            
+            lastClickX = e.clientX;
+            lastClickY = e.clientY;
+
+            if (e.target.classList.contains('note-paper')) {
+                lastClickedNote = e.target;
+                displayNoteContextMenu(e.clientX, e.clientY);
+            } else {
+                lastClickedNote = null;
+                displayGridContextMenu(e.clientX, e.clientY);
+            }
+        });
+
+        // 點擊頁面其他地方時隱藏選單
+        document.addEventListener('click', (e) => {
+             // 檢查點擊是否在任何選單或模態視窗之外
+            if (!contextMenu.contains(e.target) && !noteContextMenu.contains(e.target) && !customModal.contains(e.target) && customModal.style.display !== 'flex') {
+                hideAllContextMenus();
+            }
+            // 點擊模態視窗內容以外的區域，隱藏模態視窗
+            if (customModal.style.display === 'flex' && e.target === customModal) {
+                customModal.style.display = 'none';
+            }
+        });
+        
+        // 定位並顯示選單的通用函數
+        function positionAndShowMenu(menu, x, y) {
+            menu.style.display = 'block';
+            
+            const menuWidth = menu.offsetWidth;
+            const menuHeight = menu.offsetHeight;
+            const windowWidth = window.innerWidth;
+            const windowHeight = window.innerHeight;
+
+            let finalX = x;
+            let finalY = y;
+
+            if (x + menuWidth > windowWidth) {
+                finalX = windowWidth - menuWidth;
+            }
+            if (y + menuHeight > windowHeight) {
+                finalY = windowHeight - menuHeight;
+            }
+
+            menu.style.left = `${finalX}px`;
+            menu.style.top = `${finalY}px`;
+        }
+
+        function displayGridContextMenu(x, y) {
+            positionAndShowMenu(contextMenu, x, y);
+        }
+
+        // 檢查重疊 (不變)
+        function checkOverlap(element) {
+            const children = Array.from(contentLayer.children);
+            const rectAAdjusted = {
+                left: element.offsetLeft,
+                top: element.offsetTop,
+                right: element.offsetLeft + element.offsetWidth,
+                bottom: element.offsetTop + element.offsetHeight
+            };
+
+            for (const otherElement of children) {
+                if (element === otherElement) continue;
+
+                const rectB = {
+                    left: otherElement.offsetLeft,
+                    top: otherElement.offsetTop,
+                    right: otherElement.offsetLeft + otherElement.offsetWidth,
+                    bottom: otherElement.offsetTop + otherElement.offsetHeight
+                };
+
+                const isOverlapping = !(
+                    rectAAdjusted.right < rectB.left ||
+                    rectAAdjusted.left > rectB.right ||
+                    rectAAdjusted.bottom < rectB.top ||
+                    rectAAdjusted.top > rectB.bottom
+                );
+
+                if (isOverlapping) return true;
+            }
+            return false;
+        }
+
+        // 顯示白紙選單 (不變)
+        function displayNoteContextMenu(x, y) {
+            const children = Array.from(contentLayer.children);
+            const index = children.indexOf(lastClickedNote);
+            const total = children.length;
+            
+            const hasOverlap = checkOverlap(lastClickedNote);
+
+            if (hasOverlap) {
+                if (index > 0) {
+                    menuBackward.style.display = 'block';
+                } else {
+                    menuBackward.style.display = 'none';
+                }
+
+                if (index < total - 1) {
+                    menuForward.style.display = 'block';
+                } else {
+                    menuForward.style.display = 'none';
+                }
+            } else {
+                menuBackward.style.display = 'none';
+                menuForward.style.display = 'none';
+            }
+            
+            positionAndShowMenu(noteContextMenu, x, y);
+        }
+
+        // 點擊網格選單項目時的處理 (保持不變)
+        contextMenu.addEventListener('click', (e) => {
+            const actionElement = e.target.closest('.menu-item');
+            if (actionElement && actionElement.getAttribute('data-action')) {
+                const action = actionElement.getAttribute('data-action');
+                
+                hideAllContextMenus();
+
+                if (PAPER_SIZES[action]) {
+                    // 這裡的尺寸已經是像素值
+                    const { width, height } = PAPER_SIZES[action];
+                    console.log(`[選單] 建立白紙尺寸: ${action} -> 寬 ${width}px, 高 ${height}px`);
+                    createNewPaper(width, height); 
+                } else if (action === 'new-paper-custom') {
+                    // 顯示自訂尺寸模態視窗
+                    customInput.value = ''; // 清空輸入框
+                    customModal.style.display = 'flex'; // 使用 flex 居中
+                    customInput.focus();
+                } else if (action === 'new-table') {
+                    console.log(`[選單] 執行動作: ${action}`);
+                }
+            }
+        });
+
+        // 點擊白紙選單項目時的處理 (保持不變)
+        noteContextMenu.addEventListener('click', (e) => {
+            if (!lastClickedNote) return;
+            const action = e.target.closest('.menu-item')?.getAttribute('data-note-action');
+            
+            if (action) {
+                console.log(`[白紙選單] 執行動作: ${action}`);
+                switch (action) {
+                    case 'print':
+                        // ...
+                        break;
+                    case 'move-backward':
+                        moveNoteLayer(lastClickedNote, -1);
+                        break;
+                    case 'move-forward':
+                        moveNoteLayer(lastClickedNote, 1);
+                        break;
+                    case 'delete':
+                        lastClickedNote.remove();
+                        lastClickedNote = null;
+                        break;
+                }
+                hideAllContextMenus();
+            }
+        });
+        
+        // --- 3. 自訂尺寸模態視窗邏輯 (已修正) ---
+
+        confirmButton.addEventListener('click', () => {
+            processCustomSize(customInput.value);
+        });
+
+        cancelButton.addEventListener('click', () => {
+            customModal.style.display = 'none';
+        });
+
+        customInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                processCustomSize(customInput.value);
+            }
+        });
+
+        /**
+         * 處理並驗證使用者輸入的自訂尺寸 (以格子為單位)
+         * @param {string} input 
+         */
+        function processCustomSize(input) {
+            
+            // 將輸入的字串標準化 (例如 '10 x 10' -> '10x10')
+            const standardizedInput = input.trim().toLowerCase().replace(/\s*[xX*]\s*/, 'x');
+
+            // 檢查是否為預設的數字對，強制使用選單尺寸 (確保 1x1 始終是 100x100px)
+            if (PAPER_SIZES[`new-paper-${standardizedInput}`]) {
+                const action = `new-paper-${standardizedInput}`;
+                const { width, height } = PAPER_SIZES[action];
+                console.log(`[自訂] 輸入 '${standardizedInput}'，強制使用選單尺寸: 寬 ${width}px, 高 ${height}px`);
+                customModal.style.display = 'none'; 
+                createNewPaper(width, height);
+                return; 
+            }
+
+            // 處理一般自訂格式: 匹配 數字 x 數字 (數字為格數)
+            const match = standardizedInput.match(/^(\d+)x(\d+)$/);
+
+            if (match) {
+                const gridWidth = parseInt(match[1]);
+                const gridHeight = parseInt(match[2]);
+
+                // 核心調整：檢查是否小於最小尺寸 1 (格)
+                if (gridWidth < MIN_CUSTOM_SIZE || gridHeight < MIN_CUSTOM_SIZE) {
+                    console.error(`[自訂] 錯誤: 寬度或高度必須至少為 ${MIN_CUSTOM_SIZE} 格 (W:${gridWidth}, H:${gridHeight})`);
+                    alert(`無效的尺寸輸入。寬度和高度必須至少為 ${MIN_CUSTOM_SIZE} 格。`);
+                    return;
+                }
+                
+                // 根據 GRID_UNIT_SIZE 計算最終像素值
+                const widthInPx = gridWidth * GRID_UNIT_SIZE;
+                const heightInPx = gridHeight * GRID_UNIT_SIZE;
+
+                console.log(`[自訂] 使用格數輸入尺寸: 寬 ${gridWidth}x${gridHeight} -> 寬 ${widthInPx}px, 高 ${heightInPx}px`);
+                customModal.style.display = 'none'; // 確定後視窗消失
+                createNewPaper(widthInPx, heightInPx); 
+            } else {
+                console.error(`[自訂] 錯誤: 無效的格式輸入: ${input}`);
+                alert("無效的尺寸格式。請使用 '寬(格)x高(格)' 的格式 (例如: 3x2)。");
+            }
+        }
+
+
+        // --- 4. 元素層次控制與創建邏輯 (保持不變) ---
+
+        function moveNoteLayer(element, direction) {
+            const parent = element.parentNode;
+            if (!parent) return;
+
+            if (direction === 1) { // 往前移 (覆蓋): 將元素移到下一個元素之後
+                const nextSibling = element.nextSibling;
+                if (nextSibling) {
+                    parent.insertBefore(element, nextSibling.nextSibling);
+                }
+            } else if (direction === -1) { // 往後移 (被覆蓋): 將元素移到上一個元素之前
+                const prevSibling = element.previousSibling;
+                if (prevSibling) {
+                    parent.insertBefore(element, prevSibling);
+                }
+            }
+        }
+        
+        function bringNoteToFront(element) {
+            element.parentNode.appendChild(element);
+        }
+
+        /**
+         * 創建一個新的白紙元素
+         * @param {number} width - 寬度 (像素)
+         * @param {number} height - 高度 (像素)
+         */
+        function createNewPaper(width, height) {
+            const paper = document.createElement('div');
+            paper.classList.add('note-paper');
+            paper.contentEditable = 'true'; 
+            paper.style.width = `${width}px`;
+            paper.style.height = `${height}px`;
+            
+            // 核心調整：只在尺寸足夠大時才添加提示文字和 padding
+            if (width > 40 && height > 30) {
+                paper.innerHTML = '請在此輸入...'; 
+                paper.style.padding = '10px';
+            } else {
+                 paper.innerHTML = '';
+                 paper.style.padding = '0'; // 確保極小尺寸無填充
+            }
+            
+            const rect = container.getBoundingClientRect();
+            
+            // 計算白紙在 content-layer 內的起始位置
+            const posX = lastClickX - rect.left - currentContentX;
+            const posY = lastClickY - rect.top - currentContentY;
+
+            paper.style.left = `${posX}px`;
+            paper.style.top = `${posY}px`;
+
+            contentLayer.appendChild(paper); 
+            paper.focus(); 
+            
+            bringNoteToFront(paper);
+
+            // 加入除錯訊息
+            console.log(`[創建] 成功建立新白紙: 尺寸 ${width}px x ${height}px, 位置 X:${Math.round(posX)}, Y:${Math.round(posY)}`);
+        }
+    </script>
+</body>
+</html>
