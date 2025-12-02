@@ -256,6 +256,12 @@
         // 將 floor 的 Three.js 實例設為全域或在 scope 內可訪問
         let floor = null; 
         
+        // 用於動畫控制的變數
+        let animationTargetZ = null;    // 目標 Z 軸值
+        let animationSpeedZ = 0;        // Z 軸變化速度 (單位/秒)
+        let lastTime = 0;               // 上次動畫時間
+        let pendingOutput = '';         // 暫存等待動畫結束後顯示的輸出
+        
         // ----------------------------------------------------
         // 輔助函數：解析並更新 Three.js 幾何體 (保留不變)
         // ----------------------------------------------------
@@ -266,7 +272,6 @@
         function updateFloorDimensionsAndGeometry(codeEditorTextarea, floor, currentFloorDimensions, renderer, camera) {
             const code = codeEditorTextarea.value;
             // 匹配 cube { x:N y:N z:N }，N可以是任意數字（包括浮點數）
-            // 修正正則表達式以匹配數字 (包括整數和浮點數)
             const regex = /cube\s*\{\s*x\s*:\s*(\d+(\.\d+)?)\s*y\s*:\s*(\d+(\.\d+)?)\s*z\s*:\s*(\d+(\.\d+)?)\s*\}/i;
             const match = code.match(regex);
             
@@ -316,6 +321,105 @@ x:${dims.width}
 y:${dims.depth} 
 z:${dims.height} 
 }`;
+        }
+        
+        // 輔助函數：解析動畫程式碼
+        function parseAndSetupAnimation(code) {
+            // 匹配 { cube.z<數字: cube.z+=數字 cube.z.speed=數字 }
+            const regex = /\{\s*cube\.z<(\d+(\.\d+)?)\s*:\s*cube\.z\+=[^\s]*\s*cube\.z\.speed=(\d+(\.\d+)?)\s*\}/i;
+            const match = code.match(regex);
+
+            if (match) {
+                const targetZ = parseFloat(match[1]);
+                const speedZ = parseFloat(match[3]); 
+
+                if (!isNaN(targetZ) && targetZ > currentFloorDimensions.height && !isNaN(speedZ) && speedZ > 0) {
+                    animationTargetZ = targetZ;
+                    animationSpeedZ = speedZ;
+                    lastTime = performance.now(); 
+                    return true;
+                }
+            }
+            animationTargetZ = null; 
+            animationSpeedZ = 0;
+            return false;
+        }
+
+        // 輔助函數：解析所有 print 語句
+        function parsePrintStatements(code) {
+            const outputLines = [];
+            
+            // 排除所有與 cube 或動畫相關的行
+            const lines = code.split('\n')
+                .map(line => line.trim())
+                .filter(line => {
+                    const trimmed = line.trim();
+                    return trimmed.length > 0 && 
+                           !trimmed.startsWith('cube') && 
+                           trimmed !== '{' && 
+                           trimmed !== '}' &&
+                           !trimmed.startsWith('x:') &&
+                           !trimmed.startsWith('y:') &&
+                           !trimmed.startsWith('z:') &&
+                           !trimmed.startsWith('cube.z'); // 排除動畫行
+                });
+                
+            lines.forEach(line => {
+                const printRegex = /^print\("([^"]*)"\)$/;
+                const match = line.match(printRegex);
+
+                if (match) {
+                    outputLines.push(match[1]); 
+                } 
+            });
+
+            return outputLines.join('\n');
+        }
+
+
+        /**
+         * 執行地板尺寸更新，並處理動畫邏輯。
+         * @returns {string} 執行結果訊息，用於即時輸出。
+         */
+        function handleSpaceAndUpdateAndAnimation(codeEditorTextarea, floor, currentFloorDimensions, renderer, camera) {
+             const code = codeEditorTextarea.value.trim();
+             
+             // 1. 嘗試執行空間更新 (cube { x: y: z: })
+             const spaceUpdateSuccess = updateFloorDimensionsAndGeometry(codeEditorTextarea, floor, currentFloorDimensions, renderer, camera);
+             
+             // 2. 嘗試設置動畫
+             const animationSetupSuccess = parseAndSetupAnimation(code);
+             
+             // 3. 提取所有 print 語句，並暫存結果
+             const printOutput = parsePrintStatements(code);
+             pendingOutput = printOutput; 
+
+             // 4. 判斷是否有錯誤或是否需要立即輸出
+             
+             const allCodeLines = code.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+             if (allCodeLines.length > 0) {
+                 const containsOnlyValidCode = allCodeLines.every(line => {
+                     return line.startsWith('cube') || line.includes('{') || line.includes('}') || line.startsWith('x:') || line.startsWith('y:') || line.startsWith('z:') || line.startsWith('print(') || line.startsWith('cube.z');
+                 });
+                 if (!containsOnlyValidCode) {
+                      console.error("[Run] 執行失敗：發現無法識別的命令。");
+                      pendingOutput = ''; // 清除 print 輸出，因為執行失敗
+                      return 'Execution failed: Unrecognized command.';
+                 }
+             }
+
+             if (animationSetupSuccess) {
+                console.log("[Run] 動畫已設定。");
+                // 如果啟動了動畫，則不立即顯示 print 輸出，只顯示動畫啟動訊息
+                return '動畫啟動中...';
+             } else if (printOutput !== '') {
+                // 沒有動畫，但有 print 輸出，則立即顯示 print 輸出，並清除暫存
+                pendingOutput = '';
+                return printOutput;
+             }
+             
+             // 只有空間更新或完全為空
+             return ''; 
         }
 
 
@@ -416,6 +520,19 @@ z:${dims.height}
                 if (controls) controls.enabled = !show;
             }
 
+            // 顯示/隱藏輸出框的函數
+            function displayOutput(output) {
+                codeOutput.textContent = output;
+                codeOutput.style.opacity = output === '' ? '0' : '1';
+
+                if (output !== '') {
+                    // 如果有輸出，則在 2 秒後隱藏
+                    setTimeout(() => {
+                        codeOutput.style.opacity = '0';
+                    }, 2000); 
+                }
+            }
+
 
             // 程式碼編輯器 - 顯示
             codeEditorBtn.addEventListener('click', () => {
@@ -465,70 +582,17 @@ z:${dims.height}
 
             // 執行按鈕功能 (核心修改區)
             runBtn.addEventListener('click', () => {
-                // 1. 執行空間更新邏輯
-                updateFloorDimensionsAndGeometry(codeEditorTextarea, floor, currentFloorDimensions, renderer, camera);
-                
-                // 2. 執行 print 語句解析邏輯
-                let code = codeEditorTextarea.value.trim();
-                let outputLines = [];
-                
-                // 過濾掉 cube 結構的行，只留下可能是 print 的行
-                const lines = code.split('\n')
-                                  .map(line => line.trim())
-                                  .filter(line => {
-                                      const trimmed = line.trim();
-                                      // 保留所有非空且不屬於 cube 結構的行 (cube, x:, y:, z:, {, })
-                                      return trimmed.length > 0 && 
-                                             !trimmed.startsWith('cube') && 
-                                             trimmed !== '{' && 
-                                             trimmed !== '}' &&
-                                             !trimmed.startsWith('x:') &&
-                                             !trimmed.startsWith('y:') &&
-                                             !trimmed.startsWith('z:');
-                                  });
-                                  
-                lines.forEach(line => {
-                    const printRegex = /^print\("([^"]*)"\)$/;
-                    const match = line.match(printRegex);
+                 const output = handleSpaceAndUpdateAndAnimation(codeEditorTextarea, floor, currentFloorDimensions, renderer, camera);
 
-                    if (match) {
-                        outputLines.push(match[1]); 
-                    } else {
-                        // 如果有不能識別的非 cube 程式碼，我們在此處可以標記錯誤，但目前只專注於 print
-                    }
-                });
-
-                let finalOutput = outputLines.join('\n'); 
-
-                // --- 修改後的錯誤判斷邏輯 ---
-                // 檢查原始代碼中是否有無法識別的命令（即非 cube 且非 print）
-                const allCodeLines = code.split('\n').map(line => line.trim()).filter(line => line.length > 0);
-                
-                if (allCodeLines.length > 0) {
-                    const containsOnlyValidCode = allCodeLines.every(line => {
-                        return line.startsWith('cube') || line.includes('{') || line.includes('}') || line.startsWith('x:') || line.startsWith('y:') || line.startsWith('z:') || line.startsWith('print(');
-                    });
-                    
-                    if (!containsOnlyValidCode && finalOutput === '') {
-                        // 如果包含無法識別的程式碼，且沒有成功的 print 輸出，才報錯。
-                        finalOutput = 'Execution failed: Unrecognized command or empty input.';
-                    } else if (finalOutput === '') {
-                        // 如果只有 cube 或有效的 print 但沒有內容輸出 (例如，輸入框只有 cube)，則輸出為空，**不報錯**。
-                        finalOutput = '';
-                    }
-                } else {
-                    // 輸入框完全為空
-                    finalOutput = ''; 
-                }
-
-                // -----------------------------
-
-                codeOutput.textContent = finalOutput;
-                codeOutput.style.opacity = finalOutput === '' ? '0' : '1';
-
-                setTimeout(() => {
-                    codeOutput.style.opacity = '0';
-                }, 2000); 
+                 // 只在動畫未啟動或執行失敗時立即顯示輸出
+                 if (output === 'Execution failed: Unrecognized command.' || output === '') {
+                     displayOutput(output);
+                 } else if (output === '動畫啟動中...') {
+                     displayOutput(output);
+                 } else {
+                     // 這是沒有動畫時立即執行的 print 輸出
+                     displayOutput(output);
+                 }
             });
 
 
@@ -574,7 +638,7 @@ z:${dims.height}
 
 
             // ----------------------------------------------------
-            // D. Three.js 核心事件 (保留不變)
+            // D. Three.js 核心事件 (加入動畫邏輯)
             // ----------------------------------------------------
             transformControls.addEventListener('dragging-changed', (event) => {
                 controls.enabled = !event.value;
@@ -608,10 +672,10 @@ z:${dims.height}
                 if (intersects.length > 0) {
                     const obj = intersects[0].object;
                     if (transformControls.object !== obj) {
-                         transformControls.attach(obj);
-                         transformControls.setMode("translate");
-                         transformControls.visible = true; 
-                         transformControls.enabled = true;
+                             transformControls.attach(obj);
+                             transformControls.setMode("translate");
+                             transformControls.visible = true; 
+                             transformControls.enabled = true;
                     } 
                 } else {
                     transformControls.detach();
@@ -622,9 +686,55 @@ z:${dims.height}
             }, false);
 
 
-            // 動畫迴圈
-            function animate() {
+            // 動畫迴圈 (核心修改區：加入 Z 軸動畫邏輯)
+            function animate(currentTime) {
                 requestAnimationFrame(animate);
+
+                // --- 處理 Z 軸動畫 ---
+                if (animationTargetZ !== null && animationSpeedZ > 0 && floor) {
+                    if (lastTime) {
+                        const deltaTime = (currentTime - lastTime) / 1000; // 轉換為秒
+                        let deltaZ = animationSpeedZ * deltaTime; // Z 軸的變化量
+                        
+                        let animationFinished = false;
+
+                        if (currentFloorDimensions.height + deltaZ >= animationTargetZ) {
+                            deltaZ = animationTargetZ - currentFloorDimensions.height; // 限制不超過目標值
+                            animationFinished = true;
+                        }
+                        
+                        if (deltaZ > 0) {
+                            // 1. 更新全局尺寸記錄
+                            currentFloorDimensions.height += deltaZ;
+                            
+                            // 2. 實際更新 Three.js 幾何體
+                            floor.geometry.dispose();
+                            // BoxGeometry(width=X, height=Z, depth=Y)
+                            floor.geometry = new THREE.BoxGeometry(
+                                currentFloorDimensions.width, 
+                                currentFloorDimensions.height, 
+                                currentFloorDimensions.depth
+                            ); 
+                            floor.position.y = currentFloorDimensions.height / 2; // 調整物體中心點以保持底部在 Y=0
+                        }
+                        
+                        if (animationFinished) {
+                            animationTargetZ = null; // 達到目標，停止動畫
+                            animationSpeedZ = 0;
+                            console.log("[Animation] Z 軸動畫完成。");
+                            
+                            // *** 修正點：動畫完成後，檢查並顯示暫存的 print 輸出 ***
+                            if (pendingOutput !== '') {
+                                console.log("[Animation] 顯示暫存輸出。");
+                                displayOutput(pendingOutput);
+                                pendingOutput = '';
+                            }
+                        }
+                    }
+                    lastTime = currentTime;
+                }
+                // --- 結束 Z 軸動畫處理 ---
+
                 controls.update();
                 renderer.render(scene, camera);
             }
@@ -654,7 +764,3 @@ z:${dims.height}
     </script>
 </body>
 </html>
-
-
-
-
