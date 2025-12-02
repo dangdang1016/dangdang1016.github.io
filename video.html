@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>全視口影片播放器 (含解析度調整)</title>
+    <style>
+        /* 1. 重置 Body 樣式以填滿整個視口 */
+        body {
+            margin: 0; 
+            overflow: hidden; 
+            height: 100vh; 
+            width: 100vw; 
+        }
+
+        /* 2. 播放器容器樣式：與視口同大 */
+        .video-player {
+            width: 100vw; 
+            height: 100vh; 
+            margin: 0;
+            background-color: #000;
+            position: relative; 
+            display: flex; 
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* 3. 影片元素本身：使用 object-fit 確保填滿畫面 */
+        #myVideo {
+            display: block;
+            width: 100%;
+            height: 100%;
+            object-fit: cover; /* 填滿容器，保持比例並裁剪 */
+        }
+
+        /* 4. 控制欄樣式 */
+        .controls {
+            display: flex;
+            align-items: center;
+            padding: 8px 15px; 
+            background: rgba(0, 0, 0, 0.7); 
+            color: #fff;
+            position: fixed; 
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            box-sizing: border-box; 
+            z-index: 10; 
+            opacity: 1; 
+            transition: opacity 0.3s;
+        }
+
+        /* 5. 按鈕樣式 */
+        .controls button {
+            background: none;
+            border: none;
+            color: #fff;
+            font-size: 1.3rem; 
+            cursor: pointer;
+            padding: 3px 8px; 
+        }
+        
+        /* 6. 解析度選擇器樣式 */
+        #resolutionSelect {
+            /* 新增：將解析度調整選單放在最左邊 */
+            margin-right: 15px; 
+            padding: 5px 10px;
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+            border: 1px solid #555;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            cursor: pointer;
+            /* 移除預設外觀以配合暗色主題 */
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+            min-width: 80px;
+        }
+        /* 設置選單選項的樣式 (例如背景顏色，使其在下拉時可見) */
+        #resolutionSelect option {
+            background-color: #333;
+            color: #fff;
+        }
+
+
+        /* 7. 進度條容器 */
+        .progress-bar-container {
+            flex-grow: 1; 
+            margin: 0 15px;
+            height: 6px; 
+            background: #555;
+            border-radius: 3px;
+            cursor: pointer;
+            position: relative;
+        }
+
+        /* 8. 實際進度條 */
+        .progress-bar {
+            height: 100%;
+            width: 0%; 
+            background: #f00;
+            border-radius: 3px;
+        }
+
+        /* 9. 時間顯示 */
+        .time-display {
+            font-size: 0.9rem; 
+            margin-left: 10px;
+            min-width: 80px; 
+            text-align: right;
+        }
+
+        /* 10. 音量滑塊 */
+        .volume-slider {
+            width: 70px; 
+            margin-left: 8px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="video-player" id="videoPlayerContainer">
+        <video id="myVideo" src="https://www.w3schools.com/html/mov_bbb.mp4" preload="metadata">
+            您的瀏覽器不支援 HTML5 影片播放。
+        </video>
+
+        <div class="controls">
+            
+            <select id="resolutionSelect">
+                <option value="480p">480p</option>
+                <option value="720p" selected>720p</option>
+                <option value="1080p">1080p</option>
+            </select>
+            <button id="playPauseBtn">▶</button>
+
+            <div class="progress-bar-container">
+                <div class="progress-bar" id="progressBar"></div>
+            </div>
+
+            <span class="time-display" id="timeDisplay">0:00 / 0:00</span>
+
+            <button id="muteUnmuteBtn">🔊</button>
+            <input type="range" id="volumeSlider" min="0" max="1" step="0.01" value="1" class="volume-slider">
+        </div>
+    </div>
+
+    <script>
+        // 獲取所有需要的 DOM 元素
+        const video = document.getElementById('myVideo');
+        const videoPlayerContainer = document.getElementById('videoPlayerContainer');
+        const playPauseBtn = document.getElementById('playPauseBtn');
+        const progressBar = document.getElementById('progressBar');
+        const progressContainer = document.querySelector('.progress-bar-container');
+        const timeDisplay = document.getElementById('timeDisplay');
+        const volumeSlider = document.getElementById('volumeSlider');
+        const muteUnmuteBtn = document.getElementById('muteUnmuteBtn');
+        // 新增解析度選單
+        const resolutionSelect = document.getElementById('resolutionSelect');
+
+        // 定義不同解析度對應的影片來源 URL (請替換為您自己的實際影片 URL)
+        const videoSources = {
+            '480p': 'https://www.w3schools.com/html/mov_bbb.mp4', // 範例 URL
+            '720p': 'https://www.sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4', // 範例 URL
+            '1080p': 'https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4' // 範例 URL
+        };
+        
+        // 初始化影片來源為 720p (與選單的 selected 一致)
+        video.src = videoSources['720p'];
+
+
+        // =========================================================
+        // 新增功能：解析度切換邏輯
+        // =========================================================
+        resolutionSelect.addEventListener('change', (e) => {
+            const newResolution = e.target.value;
+            const newSource = videoSources[newResolution];
+            
+            if (newSource) {
+                const wasPaused = video.paused;
+                const currentTime = video.currentTime;
+                
+                // 1. 設置新的影片來源
+                video.src = newSource;
+                
+                // 2. 重新載入影片
+                video.load();
+                
+                // 3. 影片載入 metadata 完成後，跳轉到舊的時間點並恢復播放狀態
+                video.onloadedmetadata = () => {
+                    video.currentTime = currentTime;
+                    if (!wasPaused) {
+                        video.play();
+                        playPauseBtn.textContent = '⏸';
+                    } else {
+                        // 確保暫停時的圖示正確
+                        playPauseBtn.textContent = '▶';
+                    }
+                    video.onloadedmetadata = null; // 清除 event listener
+                };
+            }
+        });
+        // =========================================================
+        
+        // 禁用滑鼠右鍵選單
+        videoPlayerContainer.addEventListener('contextmenu', (e) => {
+            e.preventDefault(); 
+        });
+        video.addEventListener('contextmenu', (e) => {
+            e.preventDefault(); 
+        });
+
+
+        /**
+         * 將秒數格式化為 "分:秒" 的字串
+         */
+        function formatTime(seconds) {
+            const minutes = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            const formattedSecs = secs < 10 ? '0' + secs : secs;
+            return `${minutes}:${formattedSecs}`;
+        }
+
+        // --- 1. 播放/暫停功能 ---
+        function togglePlayPause() {
+            if (video.paused || video.ended) {
+                video.play();
+                playPauseBtn.textContent = '⏸'; 
+            } else {
+                video.pause();
+                playPauseBtn.textContent = '▶'; 
+            }
+        }
+        playPauseBtn.addEventListener('click', togglePlayPause);
+        video.addEventListener('click', togglePlayPause);
+        
+        video.addEventListener('ended', () => {
+            playPauseBtn.textContent = '▶';
+        });
+
+
+        // --- 2. 進度條更新與跳轉 ---
+        
+        // a) 影片播放時，持續更新進度條和時間顯示
+        video.addEventListener('timeupdate', () => {
+            const currentTime = video.currentTime;
+            const duration = video.duration;
+
+            if (isFinite(duration) && duration > 0) {
+                const progress = (currentTime / duration) * 100;
+                progressBar.style.width = `${progress}%`;
+                
+                const currentTimeFormatted = formatTime(currentTime);
+                const durationFormatted = formatTime(duration);
+                timeDisplay.textContent = `${currentTimeFormatted} / ${durationFormatted}`;
+            } else {
+                timeDisplay.textContent = `${formatTime(currentTime)} / 0:00`;
+            }
+        });
+        
+        // b) 影片載入 metadata 完成時，設定總時長
+        video.addEventListener('loadedmetadata', () => {
+            const durationFormatted = formatTime(video.duration);
+            timeDisplay.textContent = `0:00 / ${durationFormatted}`;
+        });
+        
+
+        // c) 點擊進度條時，跳轉到指定位置
+        progressContainer.addEventListener('click', (e) => {
+            const duration = video.duration;
+            if (!isFinite(duration) || duration === 0) return; 
+
+            const rect = progressContainer.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const percentage = clickX / rect.width;
+
+            video.currentTime = duration * percentage;
+        });
+
+
+        // --- 3. 音量控制 ---
+
+        // a) 音量滑塊變動
+        volumeSlider.addEventListener('input', () => {
+            const volume = parseFloat(volumeSlider.value);
+            video.volume = volume;
+            if (volume === 0) {
+                muteUnmuteBtn.textContent = '🔇';
+            } else if (volume < 0.5) {
+                muteUnmuteBtn.textContent = '🔉';
+            } else {
+                muteUnmuteBtn.textContent = '🔊';
+            }
+        });
+
+        // b) 靜音/解除靜音按鈕
+        let lastVolume = 1; 
+
+        muteUnmuteBtn.addEventListener('click', () => {
+            if (video.volume > 0) {
+                lastVolume = video.volume; 
+                video.volume = 0;
+                volumeSlider.value = 0;
+                muteUnmuteBtn.textContent = '🔇';
+            } else {
+                video.volume = lastVolume; 
+                volumeSlider.value = lastVolume;
+                if (lastVolume < 0.5) {
+                    muteUnmuteBtn.textContent = '🔉';
+                } else {
+                    muteUnmuteBtn.textContent = '🔊';
+                }
+            }
+        });
+
+    </script>
+
+</body>
+</html>
